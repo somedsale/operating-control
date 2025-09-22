@@ -1,0 +1,39 @@
+{"translation":{
+     "time":"Thời gian",
+    "elapsed":" Thời gian đã trôi qua",
+    "lighting":"Chiếu sáng",
+    "ventilation":"thông gió",
+    "controls":"điều khiển",
+    "power":"Nguồn",
+    "gas":"Khí",
+    "timer":"bộ đếm thời gian",
+    "temperature":"Nhiệt độ",
+    "humidity":"Độ ẩm",
+       "set":"Đặt",
+       "ambient":"Đèn",
+       "ot":"Đèn mổ",
+       "use":"Đang sử dụng ",
+        "free":"không sử dụng",
+       "x-ray":"tia X",
+       "medical gas":"Khí y tế",
+       "regulation":"Điều chỉnh",
+       "Laminar Flow Alarm":"Báo động dòng Laminar",
+       "Differential Pressure Alarm":"Báo động chênh lệch áp suất",
+       "Normal":"Bình thường",
+       "fault":"lỗi",
+       "Tap to return to back home":"Chạm vào để trở về màn hình chính",
+        "Color Ambient":"Màu sắc đèn chiếu sáng",
+        "high":"cao",
+        "low":"thấp",
+        "stand by":"chế độ chờ",
+        "music":"âm nhạc",
+        "history":"lịch sử",
+        "Error Reporting History":"Lịch sử báo lỗi",
+        "emergency":"khẩn cấp"
+        
+
+
+
+
+
+}}

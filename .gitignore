@@ -1,0 +1,66 @@
+# ================================
+# Node.js & Backend
+# ================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+.pnpm-debug.log
+
+# Build / Output
+dist/
+build/
+.cache/
+.tmp/
+coverage/
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+*.log.*
+*.out
+*.pid
+*.seed
+*.pid.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ================================
+# ReactJS dashboard
+# ================================
+dashboard/node_modules/
+dashboard/build/
+dashboard/.env
+dashboard/.env.local
+dashboard/.env.*.local
+
+# ================================
+# Backend
+# ================================
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.local
+backend/.env.*.local
+
+# ================================
+# Misc
+# ================================
+*.tgz
+*.tar.gz
+*.zip
+*.7z
