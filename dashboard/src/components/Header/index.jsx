@@ -1,13 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import Lang from '../Lang';
-import logo from '../../assets/img/logo.png'
+import logo from '../../assets/img/LogoMes.png'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faGear, faHouse } from '@fortawesome/free-solid-svg-icons';
 import { NavLink } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import Timer from '../Timer';
-import SettingPopup from '../SettingPopup';
-import Time from '../Time';
 const Header = () => {
 
 
@@ -21,20 +16,16 @@ const Header = () => {
                         </NavLink>
                     </div>
                     <div className='mr-12'>
-                        {/* <NavLink to="/system">
+                        <NavLink to="/settings">
                             <FontAwesomeIcon icon={faGear} />
-                        </NavLink> */}
-                        <SettingPopup/>
-                    </div>
-                    <div>
-                        <Lang />
+                        </NavLink>
                     </div>
                 </div>
                 <div className="logo w-1/2 flex justify-end">
                     <img className='h-14' src={logo} alt="" />
                 </div>
             </div>
-            <Time/>
+            {/* <Time/> */}
         </div>
     );
 }

@@ -137,3 +137,19 @@ body {
 .slide-in {
   animation: slideIn 0.5s ease-in;
 }
+/* Đảo màu nền/chữ liên tục */
+@keyframes alarm-invert {
+  0%, 100% {
+    background-color: #dc2626; /* đỏ */
+    color: #ffffff;           /* trắng */
+  }
+  50% {
+    background-color: #ffffff; /* trắng */
+    color: #000000;            /* đen */
+    border: 1px solid #250404; /* viền đỏ để không bị chìm */
+  }
+}
+
+.alarm-invert {
+  animation: alarm-invert 1s infinite;
+}

@@ -30,9 +30,11 @@ const Regulation = ({ isOn, type }) => {
     try {
       const response = await getStatusLightingById(1);
       const response1 = await getStatusLightingById(2);
+      const response2 = await getStatusLightingById(3);
+      const response3 = await getStatusLightingById(4);
 
       // setLevel(response.data.volume);
-      setIsChecked(response.data.status || response1.data.status);
+      setIsChecked(response.data.status || response1.data.status || response2.data.status || response3.data.status);
     } catch (error) {
       dispatch(fetchDataFailure(error.message));
     }

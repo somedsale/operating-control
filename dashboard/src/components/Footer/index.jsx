@@ -1,158 +1,180 @@
-import {
-  faFire,
-  faPowerOff,
-  faUserDoctor,
-} from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import React, { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { useDispatch } from "react-redux";
+// src/layout/Footer/index.jsx
+import React, { useEffect, useState, useCallback } from "react";
 import { NavLink } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { useTranslation } from "react-i18next";
 import { setActive } from "../../store/activeSlice";
-import { getAllGas, getStatusGas } from "../../features/api/apiClient";
 import { fetchDataFailure } from "../../features/api/apiSlice";
+import { getAllGas, getAllPower } from "../../features/api/apiClient";
 
-const Footer = () => {
-  const { t } = useTranslation();
-  const [isPumpOn, setIsPumpOn] = useState(false);
-  const [statusAgss, setStatusAgss] = useState(0);
-
-  const handlePumpOn = () => {
-    if (isPumpOn) {
-      setIsPumpOn(false); // Toggle YES/NO cho PUMP
-    } else {
-      setIsPumpOn(true);
-    } // Toggle
-  };
-  const [data, setData] = useState([]);
-  const dispatch = useDispatch();
-  const fetchData = async () => {
-    try {
-      const response = await getAllGas();
-      setData(response.data);
-    } catch (error) {
-      dispatch(fetchDataFailure(error.message));
+/* ===== blink CSS khi Fault ===== */
+const AlarmCSS = () => (
+  <style>{`
+    @keyframes alarmInvert {
+      0%,49% { background:#dc2626; color:#fff; border-color:#dc2626; }
+      50%,100% { background:#fff; color:#111; border-color:#dc2626; }
     }
-  };
-  const getStatusAgss = async () => {
-    try {
-      const response = await getStatusGas(9);
-      setStatusAgss(response.data);
-    } catch (error) {
-      dispatch(fetchDataFailure(error.message));
-    }
-  };
-  useEffect(() => {
-    fetchData();
-    getStatusAgss();
+    .alarm-invert { animation: alarmInvert 1s linear infinite; }
+  `}</style>
+);
 
-  }, [dispatch]);
+/* ===== Medical Gas (0=Normal, 1=Fault) ===== */
+const GAS_ORDER = ["O2", "N2O", "MA4", "MA7", "VA", "CO2"];
+const GAS_SAMPLE = GAS_ORDER.map((c) => ({ code: c, status: 0 }));
+const toGasCode = (it) => String(it?.code ?? it?.keyword ?? "").toUpperCase();
+const toStatus01 = (it) => (Number(it?.status) === 1 ? 1 : 0);
+const shapeGas = (raw) => {
+  const by = {};
+  (raw || []).forEach((it) => {
+    const code = toGasCode(it);
+    if (GAS_ORDER.includes(code)) by[code] = { code, status: toStatus01(it) };
+  });
+  return GAS_ORDER.map((c) => by[c] ?? { code: c, status: 0 });
+};
 
+/* ===== Power (true=Fault, false=Normal) ===== */
+const POWER_TILES = [
+  { key: "ups",  title: "UPS"  },
+  { key: "ips",  title: "IPS"  },
+  { key: "main", title: "MAIN" },
+];
+const shapePower = (raw) => {
+  const arr = Array.isArray(raw) ? raw : [];
+  const byKey = Object.fromEntries(
+    arr.map((it) => [String(it?.key || "").toLowerCase(), Boolean(it?.status)])
+  );
+  return POWER_TILES.map((t) => ({
+    ...t,
+    status: !!byKey[t.key], // true = Fault, false = Normal
+  }));
+};
+
+/* ====== Chips chuyển trang trực tiếp ====== */
+const GasChip = ({ code, status, onActivate }) => {
+  const alarm = status === 1;
   return (
-    <div className="fixed bottom-px w-full flex justify-between px-8 py-4">
-      <div className="min-w-32 w-1/6 uppercase text-lg font-bold mt-4"></div>
-      <div className="w-9/12 px-8 flex">
-        <div className="pr-12">
-          <div className="capitalize text-xl interface:text-4xl mb-4 interface:mb-8">
-            {t("medical gas")}
-          </div>
-          <div>
-            {data.slice(0, 7).map((item) => {
-              return (
-                <NavLink
-                  key={item.id}
-                  onClick={() => dispatch(setActive("medical-gas"))}
-                  to="/medical-gas"
-                >
-                  <div className="inline-block">
-                    <div
-                      className={
-                        item.status
-                          ? "bg-red-700 grid uppercase place-items-center border border-red-700 rounded-lg mx-2 w-12 h-12 interface:w-16 interface:h-16 interface:text-2xl cursor-pointer"
-                          : `grid uppercase place-items-center border border-gray-600 rounded-lg mx-2 w-12 h-12 interface:w-16 interface:h-16 interface:text-2xl cursor-pointer`
-                      }
-                    >
-                      {item.keyword}
-                    </div>
-                  </div>
-                </NavLink>
-              );
-            })}
-          </div>
-        </div>
-        <div>
-          <div className="capitalize text-xl interface:text-4xl mb-4 interface:mb-8">
-            {t("AGSS")}
-          </div>
-          <div className="flex">
-            <div onClick={handlePumpOn}>
-              <div className="">
-                <div className="grid place-items-center border border-gray-600 rounded-lg mr-2 w-12 h-12  interface:w-16 interface:h-16 interface:text-2xl cursor-pointer">
-                  PUMP
-                  <span className="text-[10px] interface:text-xl">
-                    {isPumpOn ? "ON" : "OFF"}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <NavLink
-              onClick={() => dispatch(setActive("medical-gas"))}
-              to="/medical-gas"
-            >
-              <div className="">
-                <div
-                  className={
-                    statusAgss
-                      ? "bg-red-700 grid uppercase place-items-center border border-red-700 rounded-lg mx-2 w-12 h-12 interface:w-16 interface:h-16 interface:text-2xl cursor-pointer"
-                      : `grid uppercase place-items-center border border-gray-600 rounded-lg mx-2 w-12 h-12 interface:w-16 interface:h-16 interface:text-2xl cursor-pointer`
-                  }
-                >
-                  Agss
-                </div>
-              </div>
-            </NavLink>
-          </div>
-        </div>
-      </div>
-      <div className="w-1/3 flex justify-between items-end">
-        <div className=" uppercase">
-          <div className="px-4 inline-block">
-            <NavLink onClick={() => dispatch(setActive("medical-gas"))}>
-              <div className="">
-                <div className="grid place-items-center border border-gray-600 rounded-lg mx-2 w-12 h-12 interface:w-16 interface:h-16 interface:text-2xl cursor-pointer">
-                  <FontAwesomeIcon className="text-red-800" icon={faFire} />
-                  {t("fire")}
-                </div>
-              </div>
-            </NavLink>
-          </div>
-          <div className="inline-block">
-            <NavLink onClick={() => dispatch(setActive("medical-gas"))}>
-              <div className="">
-                <div className="grid place-items-center border border-gray-600 rounded-lg mx-2 w-12 h-12 interface:w-16 interface:h-16 interface:text-2xl cursor-pointer">
-                  <FontAwesomeIcon icon={faUserDoctor} />
-                  {t("call")}
-                </div>
-              </div>
-            </NavLink>
-          </div>
-        </div>
-        <div>
-          <NavLink
-            onClick={() => dispatch(setActive("medical-gas"))}
-            to="/standby"
-          >
-            <div className="capitalize flex justify-center items-center border border-gray-600 rounded-xl px-4  h-12 interface:h-16 interface:text-2xl">
-              {t("stand by")}
-              <span className="px-2">
-                <FontAwesomeIcon icon={faPowerOff} />
-              </span>
-            </div>
-          </NavLink>
-        </div>
-      </div>
-    </div>
+    <NavLink
+      to="/medical-gas"
+      onClick={onActivate}
+      className={[
+        "h-10 md:h-11 px-3 rounded-xl grid place-items-center",
+        "text-sm md:text-base font-semibold border transition",
+        alarm ? "alarm-invert" : "bg-emerald-600 text-white border-emerald-600",
+      ].join(" ")}
+      title={code}
+      role="link"
+      aria-label={`Medical Gas ${code}`}
+    >
+      {code}
+    </NavLink>
   );
 };
 
-export default Footer;
+const PowerChip = ({ label, fault, onActivate }) => {
+  const alarm = !!fault;
+  return (
+    <NavLink
+      to="/power"
+      onClick={onActivate}
+      className={[
+        "h-10 md:h-11 px-3 rounded-xl grid place-items-center",
+        "text-sm md:text-base font-semibold border transition",
+        alarm ? "alarm-invert" : "bg-emerald-600 text-white border-emerald-600",
+      ].join(" ")}
+      title={label}
+      role="link"
+      aria-label={`Power ${label}`}
+    >
+      {label}
+    </NavLink>
+  );
+};
+
+export default function Footer() {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
+  const pollIntervalSec = useSelector((s) => s?.settings?.pollIntervalSec ?? 10);
+
+  /* ===== GAS state ===== */
+  const [gas, setGas] = useState(GAS_SAMPLE);
+  const loadGas = useCallback(async () => {
+    try {
+      const res = await getAllGas(); // GET /api/gas -> [{ code, status(0|1) }]
+      const arr = Array.isArray(res?.data) ? res.data : [];
+      setGas(shapeGas(arr));
+    } catch (e) {
+      dispatch(fetchDataFailure(e?.message ?? "getAllGas error"));
+      setGas(GAS_SAMPLE);
+    }
+  }, [dispatch]);
+
+  /* ===== POWER state ===== */
+  const [power, setPower] = useState(shapePower([]));
+  const loadPower = useCallback(async () => {
+    try {
+      const res = await getAllPower(); // GET /api/power -> [{ key, title, status:boolean }]
+      setPower(shapePower(res?.data));
+    } catch (e) {
+      dispatch(fetchDataFailure(e?.message ?? "getAllPower error"));
+      setPower(shapePower([]));
+    }
+  }, [dispatch]);
+
+  /* ===== polling ===== */
+  useEffect(() => {
+    const runAll = () => { loadGas(); loadPower(); };
+    runAll();
+    const ms = Math.max(1, Number(pollIntervalSec || 10)) * 1000;
+    const id = setInterval(runAll, ms);
+    return () => clearInterval(id);
+  }, [loadGas, loadPower, pollIntervalSec]);
+
+  return (
+    <footer className="fixed bottom-0 left-0 right-0 bg-transparent backdrop-blur">
+      <AlarmCSS />
+      <div className="px-3 md:px-6 py-2 md:py-3">
+        <div className="relative flex flex-wrap items-center gap-x-6 gap-y-3">
+          {/* spacer căn theo sidebar nếu có */}
+          <div className="hidden md:block shrink-0" style={{ width: "var(--nav-w, 11rem)" }} />
+
+          {/* MEDICAL GAS */}
+          <div className="flex items-center gap-3 min-w-[260px]">
+            <div className="text-lg md:text-2xl font-semibold text-slate-800 whitespace-nowrap">
+              {t("Medical Gas")}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 md:gap-3">
+              {gas.map((g) => (
+                <GasChip
+                  key={g.code}
+                  code={g.code}
+                  status={g.status}
+                  onActivate={() => dispatch(setActive("medical-gas"))}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Divider chấm nhỏ */}
+          <div className="h-5 w-px bg-slate-300/60 hidden md:block" />
+
+          {/* POWER */}
+          <div className="flex items-center gap-3 min-w-[220px]">
+            <div className="text-lg md:text-2xl font-semibold text-slate-800 whitespace-nowrap">
+              {t("Power")}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 md:gap-3">
+              {power.map((p) => (
+                <PowerChip
+                  key={p.key}
+                  label={p.title.toUpperCase()}
+                  fault={p.status}
+                  onActivate={() => dispatch(setActive("power"))}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}

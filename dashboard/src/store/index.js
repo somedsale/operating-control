@@ -5,6 +5,7 @@ import timerReducer from "./timerSlice";
 import activeReducer from "./activeSlice";
 import dataReducer from "../features/api/apiSlice";
 import websocketReducer from "./websocketSlice";
+import settingsReducer from "./settingsSlice";
 export const store = configureStore({
   reducer: {
     counter: counterReducer,
@@ -13,6 +14,7 @@ export const store = configureStore({
     active: activeReducer,
     data: dataReducer,
     websocket: websocketReducer,
+    settings: settingsReducer,
   },
   // middleware: (getDefaultMiddleware) =>
   //   getDefaultMiddleware().concat(lightingApi.middleware),

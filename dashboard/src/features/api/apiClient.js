@@ -33,7 +33,7 @@ export const increaseVentilation = () => apiClient.get(`/ventilation/increase`);
 
 //api power
 export const getAllPower = () => apiClient.get('/power');
-export const getStatusPower = (id) => apiClient.get(`/power/status/${id}`);
+export const updatePower = (key, status) => apiClient.patch(`/power/${key}`, { status });
 
 //api gas
 export const getAllGas = () => apiClient.get('/gas');
@@ -43,6 +43,7 @@ export const getStatusGas = (id) => apiClient.get(`/gas/status/${id}`);
 export const getTemperature = () => apiClient.get('/sensor/temp');
 export const getHumidity = () => apiClient.get('/sensor/humidity');
 
-
+export const getFilterPressure = () => apiClient.get('/sensor/pressure/filter');
+export const getRoomPressure = () => apiClient.get('/sensor/pressure/room');
 // export const getProducts = () => apiClient.get('/products/list');
 // export const getProductById = (id) => apiClient.get(`/products/${id}`);

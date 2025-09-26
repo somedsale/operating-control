@@ -1,56 +1,76 @@
-import { faHandPointer } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { faHandPointer } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import React, { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
-const StandBy = () => {
-    const navigate = useNavigate();
-    const { t, i18n } = useTranslation();
-    const [currentTime, setCurrentTime] = useState(new Date());
+const pad2 = (n) => String(n).padStart(2, "0");
 
-    useEffect(() => {
-        // Cập nhật thời gian mỗi giây
-        const timer = setInterval(() => {
-            setCurrentTime(new Date());
-        }, 1000);
+export default function StandBy() {
+  const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+  const [now, setNow] = useState(new Date());
 
-        // Dọn dẹp interval khi component unmount
-        return () => clearInterval(timer);
-    }, []);
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-    // Định dạng ngày tháng năm
-    const formattedDate = currentTime.toLocaleDateString(i18n.language, {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-    });
+  const weekday = now.toLocaleDateString(i18n.language, { weekday: "long" });
+  const dateStr = now.toLocaleDateString(i18n.language, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const timeStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 
-    // Định dạng giờ
-    const formattedTime = currentTime.toLocaleTimeString(i18n.language, {
-        hour: '2-digit',
-        minute: '2-digit',
-        // second: '2-digit',
-        hour12: false
-    });
+  const goHome = useCallback(() => navigate("/lighting"), [navigate]);
 
-    // Lấy thứ trong tuần
-    const dayOfWeek = currentTime.toLocaleDateString(i18n.language, {
-        weekday: 'long',
-    });
-    const handleBackHome = () => {
-        navigate('/')
-    }
-    return (
-        <div className='w-screen h-screen bg-emerald-100 cursor-pointer' onClick={handleBackHome}>
-            <div className='w-full flex justify-center items-center text-2xl'>
-                <p className='pt-8'>{dayOfWeek} {formattedDate}</p>
-            </div>
-            <div className="grid place-items-center h-screen">
-                <h1 className="text-3xl font-bold text-emeralde-900">{t('Tap to return to back home')} <FontAwesomeIcon icon={faHandPointer}/></h1>
-            </div>
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Escape") {
+        e.preventDefault();
+        goHome();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goHome]);
+
+  return (
+    <div
+      className="relative min-h-screen w-full 
+                 bg-gradient-to-b from-sky-50 to-white
+                 text-slate-800 select-none cursor-pointer"
+      onClick={goHome}
+      role="button"
+      tabIndex={0}
+      aria-label={t("Tap to return to back home")}
+    >
+      <style>{`.time-digits{font-variant-numeric:tabular-nums lining-nums}`}</style>
+
+      {/* ngày ở trên */}
+      <div className="absolute top-6 inset-x-0 text-center">
+        <p className="text-[clamp(16px,3vw,28px)] text-slate-600">
+          {weekday} {dateStr}
+        </p>
+      </div>
+
+      {/* nội dung trung tâm */}
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <div className="time-digits text-[clamp(84px,18vw,220px)] font-semibold text-slate-500 leading-none">
+          {timeStr}
         </div>
-    );
-}
 
-export default StandBy;
+        <div
+          className="mt-8 inline-flex items-center gap-3 px-8 py-4 rounded-2xl
+                     border border-slate-300 bg-white/70 hover:bg-white
+                     text-slate-700 text-[clamp(14px,2.6vw,22px)] transition"
+        >
+          {t("Tap to return to back home")}
+          <FontAwesomeIcon icon={faHandPointer} />
+        </div>
+      </div>
+    </div>
+  );
+}
