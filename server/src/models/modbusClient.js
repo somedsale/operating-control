@@ -170,7 +170,7 @@ module.exports = {
   },
 
   async toggleDO(index) {
-    if (index < 0 || index > 10) throw new Error('DO index must be 0..3');
+    if (index < 0 || index > 11) throw new Error('DO index must be 0..3');
     return enqueue(async () => {
       const s = await readDOStatesCore();
       await writeCoilCore(index, !s[index]);

@@ -15,6 +15,12 @@ module.exports = {
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
+    // --- MOCK ---
+    // res.json([
+    //   { key: 'ups', title: 'UPS', status: false },
+    //   { key: 'ips', title: 'IPS', status: true },
+    //   { key: 'main', title: 'Main', status: false },
+    // ]);
   },
 
   // GET /api/power/:key

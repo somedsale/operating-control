@@ -1,5 +1,5 @@
 // src/pages/TimerTriple/index.jsx
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 import { useSelector } from "react-redux";
@@ -23,13 +23,50 @@ const toHMS = (sec) => {
   const t = Math.max(0, Math.floor(sec));
   return { h: Math.floor(t / 3600), m: Math.floor((t % 3600) / 60), s: t % 60 };
 };
-const API_BASE = process.env.REACT_APP_API_BASE || "";
-async function apiJson(url, opts) {
-  const res = await fetch(API_BASE + url, opts);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-  return data;
+
+// API helper (prefix bằng apiBase từ Settings)
+function makeApiJson(base) {
+  return async function apiJson(url, opts) {
+    const res = await fetch(`${base}${url}`, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    return data;
+  };
 }
+
+/* ------- Tiny sparkline (SVG) ------- */
+const Spark = ({ data = [], width = 200, height = 42, strokeWidth = 2, ariaLabel }) => {
+  // data: [{t: ISO, v: number}]
+  const { min, max, pts } = useMemo(() => {
+    if (!data.length) return { min: 0, max: 1, pts: "" };
+    const values = data.map(d => Number(d.v));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = Math.max(1e-6, max - min);
+    const stepX = data.length > 1 ? width / (data.length - 1) : 0;
+    const pts = data
+      .map((d, i) => {
+        const x = i * stepX;
+        const y = height - ((Number(d.v) - min) / span) * height; // 0 -> bottom
+        return `${x},${y}`;
+      })
+      .join(" ");
+    return { min, max, pts };
+  }, [data, width, height]);
+
+  return (
+    <svg width={width} height={height} role="img" aria-label={ariaLabel || "sparkline"} className="block">
+      <line x1="0" y1={height} x2={width} y2={height} stroke="#e5e7eb" strokeWidth="1" />
+      <polyline fill="none" stroke="#64748b" strokeWidth={strokeWidth} points={pts} vectorEffect="non-scaling-stroke" />
+      {data.length > 0 && (
+        <>
+          <circle cx="2" cy={height - ((data[0].v - (Math.min(...data.map(d=>d.v)))) / Math.max(1e-6, (Math.max(...data.map(d=>d.v)) - Math.min(...data.map(d=>d.v))))) * height} r="2.5" fill="#334155" />
+          <circle cx={width - 2} cy={height - ((data[data.length - 1].v - (Math.min(...data.map(d=>d.v)))) / Math.max(1e-6, (Math.max(...data.map(d=>d.v)) - Math.min(...data.map(d=>d.v))))) * height} r="2.5" fill="#334155" />
+        </>
+      )}
+    </svg>
+  );
+};
 
 /* ---------- Styles ---------- */
 const styles = {
@@ -56,7 +93,7 @@ const Card = ({ children, className = "" }) => (
 );
 
 /* Stat tile (ENV) */
-const StatTile = ({ label, value, unit, accent = "emerald", loading, error }) => {
+const StatTile = ({ label, value, unit, accent = "emerald", loading, error, footer }) => {
   const accentText =
     accent === "blue" ? "text-blue-600" :
     accent === "rose" ? "text-rose-600" :
@@ -66,10 +103,13 @@ const StatTile = ({ label, value, unit, accent = "emerald", loading, error }) =>
       <div className="text-[clamp(11px,1.4vw,13px)] text-gray-500 uppercase tracking-wide">{label}</div>
       <div className="flex items-baseline gap-2">
         <div className={`text-[clamp(22px,3.6vw,34px)] font-semibold ${accentText}`}>
-          {Number.isFinite(value) ? value : "--"}
+          {Number.isFinite(value) ? value : (value ?? "--")}
         </div>
         <div className="text-[clamp(11px,1.6vw,14px)] text-gray-500">{unit}</div>
       </div>
+
+      {footer}
+
       {loading && (
         <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] rounded-xl grid place-items-center">
           <svg className="animate-spin h-5 w-5 text-gray-500" viewBox="0 0 24 24">
@@ -190,6 +230,8 @@ const TapCard = ({ title, sub, pressed, disabled, loading, onClick }) => (
 export default function TimerTriple() {
   const { t, i18n } = useTranslation();
   const timeFormat = useSelector((s) => s?.settings?.timeFormat ?? s?.settings?.value?.timeFormat ?? "24h");
+  const apiBase = useSelector((s) => s?.settings?.apiBaseUrl || "http://localhost:5000");
+  const apiJson = useMemo(() => makeApiJson(apiBase), [apiBase]);
 
   /* Current time */
   const [now, setNow] = useState(new Date());
@@ -209,12 +251,11 @@ export default function TimerTriple() {
   /* ====== AUDIO: cảnh báo countdown ====== */
   const audioRef = useRef(null);
   const audioUnlockedRef = useRef(false);
-
   const initAudio = () => {
     try {
       if (!audioRef.current) {
         const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return; // môi trường không hỗ trợ
+        if (!AC) return;
         audioRef.current = new AC();
       }
       if (audioRef.current.state === "suspended") {
@@ -223,7 +264,6 @@ export default function TimerTriple() {
       audioUnlockedRef.current = true;
     } catch {/* ignore */}
   };
-
   const beep = (freq = 880, ms = 200, type = "sine", gain = 0.05) => {
     const ctx = audioRef.current;
     if (!ctx) return;
@@ -241,29 +281,16 @@ export default function TimerTriple() {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.stop(t + dur + 0.02);
   };
-
-  // Phát âm ở các mốc: 60s còn lại, 10..1s, 0s
   const prevLeftRef = useRef(anesLeft);
   useEffect(() => {
     const prev = prevLeftRef.current;
     const prevInt = Math.ceil(prev);
     const currInt = Math.ceil(anesLeft);
-
     if (currInt < prevInt && audioUnlockedRef.current) {
-      // mốc 60 giây
-      if (prevInt > 60 && currInt <= 60) {
-        initAudio();
-        beep(660, 300, "sine", 0.06);
-      }
-      // 10 giây cuối: mỗi giây beep ngắn
-      if (currInt <= 10 && currInt > 0) {
-        initAudio();
-        beep(950, 130, "square", 0.06);
-      }
-      // Hết giờ
+      if (prevInt > 60 && currInt <= 60) { initAudio(); beep(660, 300, "sine", 0.06); }
+      if (currInt <= 10 && currInt > 0) { initAudio(); beep(950, 130, "square", 0.06); }
       if (currInt === 0 && prevInt > 0) {
         initAudio();
-        // ba beep liên tiếp
         beep(600, 180, "sine", 0.07);
         setTimeout(() => beep(600, 180, "sine", 0.07), 250);
         setTimeout(() => beep(600, 320, "sine", 0.08), 550);
@@ -272,7 +299,7 @@ export default function TimerTriple() {
     prevLeftRef.current = anesLeft;
   }, [anesLeft]);
 
-  /* ENV stats */
+  /* ========= ENV stats + HISTORY (giống Right) ========= */
   const [stats, setStats] = useState({
     temp: { v: null, loading: false, error: false },
     humi: { v: null, loading: false, error: false },
@@ -280,43 +307,97 @@ export default function TimerTriple() {
     pRoom: { v: null, loading: false, error: false },
     updatedAt: null,
   });
+  const [histTemp, setHistTemp] = useState([]);   // [{t,v}]
+  const [histHumd, setHistHumd] = useState([]);   // [{t,v}]
+  const [histPFilter, setHistPFilter] = useState([]);
+  const [histPRoom, setHistPRoom] = useState([]);
+
   const loadStats = useCallback(async () => {
     setStats((s) => ({
       ...s,
-      temp: { ...s.temp, loading: true, error: false },
-      humi: { ...s.humi, loading: true, error: false },
+      temp:    { ...s.temp,    loading: true, error: false },
+      humi:    { ...s.humi,    loading: true, error: false },
       pFilter: { ...s.pFilter, loading: true, error: false },
-      pRoom: { ...s.pRoom, loading: true, error: false },
+      pRoom:   { ...s.pRoom,   loading: true, error: false },
     }));
     try {
-      const [temp, humi, pFilter, pRoom] = await Promise.allSettled([
-        apiJson("/api/sensor/temp"),
-        apiJson("/api/sensor/humidity"),
-        apiJson("/api/pressure/filter"),
-        apiJson("/api/pressure/room"),
+      const [lastTH, pf, pr] = await Promise.allSettled([
+        apiJson("/api/sensor/last"),                // -> { temp, humidity }
+        apiJson("/api/sensor/pressure/filter"),     // -> number | { value }
+        apiJson("/api/sensor/pressure/room"),       // -> number | { value }
       ]);
+      const tempVal = lastTH.status === "fulfilled" ? Number(lastTH.value?.temp) : null;
+      const humiVal = lastTH.status === "fulfilled" ? Number(lastTH.value?.humidity) : null;
+      const pfVal   = pf.status    === "fulfilled" ? Number(pf.value?.value ?? pf.value) : null;
+      const prVal   = pr.status    === "fulfilled" ? Number(pr.value?.value ?? pr.value) : null;
+
       setStats({
-        temp: { v: temp.status === "fulfilled" ? Number(temp.value) : null, loading: false, error: temp.status !== "fulfilled" },
-        humi: { v: humi.status === "fulfilled" ? Number(humi.value) : null, loading: false, error: humi.status !== "fulfilled" },
-        pFilter: { v: pFilter.status === "fulfilled" ? Number(pFilter.value) : null, loading: false, error: pFilter.status !== "fulfilled" },
-        pRoom:  { v: pRoom.status  === "fulfilled" ? Number(pRoom.value)  : null, loading: false, error: pRoom.status  !== "fulfilled" },
+        temp:    { v: Number.isFinite(tempVal) ? tempVal : null, loading: false, error: lastTH.status !== "fulfilled" },
+        humi:    { v: Number.isFinite(humiVal) ? humiVal : null, loading: false, error: lastTH.status !== "fulfilled" },
+        pFilter: { v: Number.isFinite(pfVal)   ? pfVal   : null, loading: false, error: pf.status !== "fulfilled" },
+        pRoom:   { v: Number.isFinite(prVal)   ? prVal   : null, loading: false, error: pr.status !== "fulfilled" },
         updatedAt: new Date(),
       });
     } catch {
       setStats((s) => ({
-        temp: { ...s.temp, loading: false, error: true },
-        humi: { ...s.humi, loading: false, error: true },
+        temp:    { ...s.temp,    loading: false, error: true },
+        humi:    { ...s.humi,    loading: false, error: true },
         pFilter: { ...s.pFilter, loading: false, error: true },
-        pRoom: { ...s.pRoom, loading: false, error: true },
+        pRoom:   { ...s.pRoom,   loading: false, error: true },
         updatedAt: s.updatedAt,
       }));
     }
-  }, []);
-  useEffect(() => { loadStats(); const id = setInterval(loadStats, 5000); return () => clearInterval(id); }, [loadStats]);
+  }, [apiJson]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const json = await apiJson("/api/sensor/history?metric=all&bucketSec=60");
+      const norm = (arr) => Array.isArray(arr) ? arr.map((d) => ({ t: d.t, v: Number(d.v) })) : [];
+      setHistTemp(norm(json?.temp));
+      setHistHumd(norm(json?.humidity));
+    } catch { /* silent */ }
+  }, [apiJson]);
+
+  const loadPressureHistory = useCallback(async () => {
+    try {
+      const [fJson, rJson] = await Promise.all([
+        apiJson("/api/sensor/pressure/history?kind=filter&bucketSec=60"),
+        apiJson("/api/sensor/pressure/history?kind=room&bucketSec=60"),
+      ]);
+      const norm = (arr) => Array.isArray(arr) ? arr.map((d) => ({ t: d.t, v: Number(d.v) })) : [];
+      setHistPFilter(norm(fJson?.points || fJson));
+      setHistPRoom(norm(rJson?.points || rJson));
+    } catch { /* silent */ }
+  }, [apiJson]);
+
+  // Polling giống Right
+  useEffect(() => {
+    // lần đầu
+    loadStats();
+    loadHistory();
+    loadPressureHistory();
+
+    // current values: 5s
+    const tick = setInterval(() => {
+      loadStats();
+    }, 5000);
+
+    // histories: 60s
+    const histTick = setInterval(() => {
+      loadHistory();
+      loadPressureHistory();
+    }, 60000);
+
+    return () => {
+      clearInterval(tick);
+      clearInterval(histTick);
+    };
+  }, [loadStats, loadHistory, loadPressureHistory]);
 
   /* Medical gas (compact) */
   const [gas, setGas] = useState(ORDER.map((c) => ({ code: c, status: 0 })));
-  const [gasErr, setGasErr] = useState(""); const [gasUpdatedAt, setGasUpdatedAt] = useState(null);
+  const [gasErr, setGasErr] = useState("");
+  const [gasUpdatedAt, setGasUpdatedAt] = useState(null);
   const loadGas = useCallback(async () => {
     try {
       setGasErr("");
@@ -324,8 +405,12 @@ export default function TimerTriple() {
       const arr = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
       setGas(shapeGas(arr)); setGasUpdatedAt(new Date());
     } catch (e) { setGasErr(e?.message || "Failed to load gas"); }
-  }, []);
-  useEffect(() => { loadGas(); const id = setInterval(loadGas, 10000); return () => clearInterval(id); }, [loadGas]);
+  }, [apiJson]);
+  useEffect(() => {
+    loadGas();
+    const id = setInterval(loadGas, 10000);
+    return () => clearInterval(id);
+  }, [loadGas]);
 
   /* Devices (right column) */
   const DEV_ITEMS = [
@@ -340,7 +425,6 @@ export default function TimerTriple() {
   const [devLoading, setDevLoading] = useState(false);
   const [devSavingId, setDevSavingId] = useState(null);
   const [devErr, setDevErr] = useState("");
-
   const loadDevices = useCallback(async () => {
     try {
       setDevLoading(true); setDevErr("");
@@ -358,15 +442,12 @@ export default function TimerTriple() {
     } finally {
       setDevLoading(false);
     }
-  }, []);
-
+  }, [apiJson]);
   useEffect(() => { loadDevices(); }, [loadDevices]);
-
   const toggleDevice = (id) => async () => {
     const idx = dev.findIndex(d => d.id === id);
     if (idx < 0) return;
     const next = !dev[idx].on;
-    // optimistic
     setDev(arr => arr.map((it, i) => i === idx ? { ...it, on: next } : it));
     setDevSavingId(id);
     try {
@@ -376,7 +457,6 @@ export default function TimerTriple() {
         body: JSON.stringify({ on: next }),
       });
     } catch (e) {
-      // rollback
       setDev(arr => arr.map((it, i) => i === idx ? { ...it, on: !next } : it));
       setDevErr(e.message || "Update device failed");
     } finally {
@@ -404,7 +484,6 @@ export default function TimerTriple() {
   const surgPlay = () => { initAudio(); lastTs.current = null; setSurgRun(true); };
   const surgPause = () => { lastTs.current = null; setSurgRun(false); };
   const surgReset = () => { lastTs.current = null; setSurgRun(false); setSurgSec(0); };
-
   const applyAnesMinutes = () => {
     const m = Number(anesMinsInput);
     if (Number.isFinite(m) && m > 0) {
@@ -413,13 +492,12 @@ export default function TimerTriple() {
       setAnesStart(secs); setAnesLeft(secs); setAnesRun(false);
     }
   };
-  const anesPlay = () => { initAudio(); if (anesLeft <= 0) setAnesLeft(anesStart); lastTs.current = null; setAnesRun(true); };
-  const anesPause = () => { lastTs.current = null; setAnesRun(false); };
-  const anesReset = () => { lastTs.current = null; setAnesRun(false); setAnesLeft(anesStart); };
-
-  const playBoth = () => { initAudio(); if (anesLeft <= 0) setAnesLeft(anesStart); lastTs.current = null; setSurgRun(true); setAnesRun(true); };
-  const pauseBoth = () => { lastTs.current = null; setSurgRun(false); setAnesRun(false); };
-  const resetBoth = () => { lastTs.current = null; setSurgRun(false); setSurgSec(0); setAnesRun(false); setAnesLeft(anesStart); };
+  const anesPlay   = () => { initAudio(); if (anesLeft <= 0) setAnesLeft(anesStart); lastTs.current = null; setAnesRun(true); };
+  const anesPause  = () => { lastTs.current = null; setAnesRun(false); };
+  const anesReset  = () => { lastTs.current = null; setAnesRun(false); setAnesLeft(anesStart); };
+  const playBoth   = () => { initAudio(); if (anesLeft <= 0) setAnesLeft(anesStart); lastTs.current = null; setSurgRun(true); setAnesRun(true); };
+  const pauseBoth  = () => { lastTs.current = null; setSurgRun(false); setAnesRun(false); };
+  const resetBoth  = () => { lastTs.current = null; setSurgRun(false); setSurgSec(0); setAnesRun(false); setAnesLeft(anesStart); };
 
   /* ---------- Render ---------- */
   return (
@@ -444,13 +522,62 @@ export default function TimerTriple() {
         {/* LEFT: ENV */}
         <div className="col-span-12 lg:col-span-2 space-y-5 md:space-y-6">
           <div className="grid grid-cols-1 gap-4">
-            <StatTile label="Temperature" value={Number.isFinite(stats.temp.v) ? stats.temp.v.toFixed(1) : stats.temp.v} unit="°C" accent="rose" loading={stats.temp.loading} error={stats.temp.error}/>
-            <StatTile label="Humidity" value={Number.isFinite(stats.humi.v) ? stats.humi.v.toFixed(0) : stats.humi.v} unit="%" accent="blue" loading={stats.humi.loading} error={stats.humi.error}/>
-            <StatTile label="Filter Pressure" value={Number.isFinite(stats.pFilter.v) ? stats.pFilter.v.toFixed(0) : stats.pFilter.v} unit="Pa" accent="amber" loading={stats.pFilter.loading} error={stats.pFilter.error}/>
-            <StatTile label="Room Pressure" value={Number.isFinite(stats.pRoom.v) ? stats.pRoom.v.toFixed(0) : stats.pRoom.v} unit="Pa" accent="emerald" loading={stats.pRoom.loading} error={stats.pRoom.error}/>
+            <StatTile
+              label="Temperature"
+              value={Number.isFinite(stats.temp.v) ? stats.temp.v.toFixed(1) : stats.temp.v}
+              unit="°C"
+              accent="rose"
+              loading={stats.temp.loading}
+              error={stats.temp.error}
+              footer={
+                <div className="mt-2">
+                  <Spark data={histTemp} ariaLabel="Temperature trend" />
+                </div>
+              }
+            />
+            <StatTile
+              label="Humidity"
+              value={Number.isFinite(stats.humi.v) ? stats.humi.v.toFixed(0) : stats.humi.v}
+              unit="%"
+              accent="blue"
+              loading={stats.humi.loading}
+              error={stats.humi.error}
+              footer={
+                <div className="mt-2">
+                  <Spark data={histHumd} ariaLabel="Humidity trend" />
+                </div>
+              }
+            />
+            <StatTile
+              label="Filter Pressure"
+              value={Number.isFinite(stats.pFilter.v) ? stats.pFilter.v.toFixed(0) : stats.pFilter.v}
+              unit="Pa"
+              accent="amber"
+              loading={stats.pFilter.loading}
+              error={stats.pFilter.error}
+              footer={
+                <div className="mt-2">
+                  <Spark data={histPFilter} ariaLabel="Filter pressure trend" />
+                </div>
+              }
+            />
+            <StatTile
+              label="Room Pressure"
+              value={Number.isFinite(stats.pRoom.v) ? stats.pRoom.v.toFixed(0) : stats.pRoom.v}
+              unit="Pa"
+              accent="emerald"
+              loading={stats.pRoom.loading}
+              error={stats.pRoom.error}
+              footer={
+                <div className="mt-2">
+                  <Spark data={histPRoom} ariaLabel="Room pressure trend" />
+                </div>
+              }
+            />
           </div>
+
           <div className="text-right">
-            <button onClick={loadStats} className="border border-gray-300 rounded-full px-4 py-2 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-2" title="Refresh">
+            <button onClick={() => { loadStats(); loadHistory(); loadPressureHistory(); }} className="border border-gray-300 rounded-full px-4 py-2 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-2" title="Refresh">
               <FontAwesomeIcon icon={faRotateRight} /> Refresh ENV
             </button>
             {stats.updatedAt && (
@@ -479,7 +606,7 @@ export default function TimerTriple() {
             <div className="flex flex-wrap items-center justify-center gap-3">
               <div className="px-5 py-3 rounded-xl border border-gray-200 bg-white/60 flex items-center gap-3">
                 <span className="text-gray-700 text-sm md:text-base">Control Both</span>
-                <button onClick={playBoth} className={styles.btn} title="Play both"><FontAwesomeIcon icon={faPlay} /></button>
+                <button onClick={playBoth}  className={styles.btn} title="Play both"><FontAwesomeIcon icon={faPlay} /></button>
                 <button onClick={pauseBoth} className={styles.btn} title="Pause both"><FontAwesomeIcon icon={faPause} /></button>
                 <button onClick={resetBoth} className={styles.btn} title="Reset both"><FontAwesomeIcon icon={faXmark} /></button>
               </div>

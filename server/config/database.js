@@ -22,7 +22,7 @@ mongoose.connection.on('connected', () => logger.info('[mongo] connected'));
 mongoose.connection.on('error', (err) => logger.error(`[mongo] error: ${err.message}`));
 mongoose.connection.on('disconnected', () => logger.warn('[mongo] disconnected'));
 
-const connect = async (uri = `${process.env.MONGO_URI}/${process.env.MONGODB_DB}`) => {
+const connect = async (uri = process.env.MONGO_URI) => {
   if (!uri) {
     logger.error('[mongo] MONGO_URI is missing.');
     process.exit(1);

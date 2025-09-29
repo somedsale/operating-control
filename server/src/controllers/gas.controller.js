@@ -7,25 +7,26 @@ function normalize01(v) {
 }
 
 async function list(req, res) {
-  // try {
-  //   const data = await gasService.listOrdered();
-  //   const shaped = (data || []).map((d) => ({
-  //     code: d.code,
-  //     status: normalize01(d?.status),
-  //   }));
-  //   res.json(shaped);
-  // } catch (e) {
-  //   console.error("[gas] list error:", e);
-  //   res.status(500).json({ error: "Failed to fetch gas statuses" });
-  // }
-res.json([
-  { code: "O2", status: 1 },
-  { code: "N2O", status: 1 },
-  { code: "MA4", status: 1 },
-  { code: "MA7", status: 0 },
-  { code: "VA", status: 0 },
-  { code: "CO2", status: 0 },
-]);
+  try {
+    const data = await gasService.listOrdered();
+    const shaped = (data || []).map((d) => ({
+      code: d.code,
+      status: normalize01(d?.status),
+    }));
+    res.json(shaped);
+  } catch (e) {
+    console.error("[gas] list error:", e);
+    res.status(500).json({ error: "Failed to fetch gas statuses" });
+  }
+  // --- MOCK ---
+// res.json([
+//   { code: "O2", status: 1 },
+//   { code: "N2O", status: 1 },
+//   { code: "MA4", status: 0 },
+//   { code: "MA7", status: 0 },
+//   { code: "VA", status: 0 },
+//   { code: "CO2", status: 0 },
+// ]);
 
 }
 

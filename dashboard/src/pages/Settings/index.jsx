@@ -1,5 +1,5 @@
 // src/pages/Settings/index.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -35,28 +35,6 @@ const Toggle = ({ checked, onChange }) => (
   </button>
 );
 
-/* ---------- Relay helpers ---------- */
-// Chỉ các thiết bị trong hình + Light 1..4
-const baseDevices = [
-  { id: "in_use",        name: "In Use",         relay: 0 },
-  { id: "operating_lamp",       name: "Operating Lamp",        relay: 0 },
-  { id: "xray",          name: "X-Ray",          relay: 0 },
-  { id: "uv",            name: "UV",             relay: 0 },
-  { id: "heat_lamp",     name: "Heating Lamp",   relay: 0 },
-  { id: "general_light", name: "General Light",  relay: 0 },
-  { id: "light_1",       name: "Light 1",        relay: 0 },
-  { id: "light_2",       name: "Light 2",        relay: 0 },
-  { id: "light_3",       name: "Light 3",        relay: 0 },
-  { id: "light_4",       name: "Light 4",        relay: 0 },
-];
-
-// Tạo mapping tuần tự 1..total, thiết bị dư -> 0
-const seqRelayRows = (total) =>
-  baseDevices.map((row, idx) => ({
-    ...row,
-    relay: idx < total ? idx + 1 : 0,
-  }));
-
 /* ---------- API helper ---------- */
 const apiFetch = async (url, { method = "GET", body, headers } = {}, base = "") => {
   const res = await fetch((base || "") + url, {
@@ -81,6 +59,11 @@ export default function SettingsPage() {
   const [tab, setTab] = useState("general"); // general | relays | alarms | api
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+
+  // Thiết bị lấy từ API (đã sort)
+  const [apiDevices, setApiDevices] = useState([]);          // [{id,name,relay?...}]
+  const [devLoading, setDevLoading] = useState(false);
+  const [devErr, setDevErr] = useState("");
 
   useEffect(() => setDraft(settings), [settings]);
   useEffect(() => {
@@ -115,16 +98,90 @@ export default function SettingsPage() {
     []
   );
 
+  /* ---------- API base ---------- */
+  const apiBase = draft.apiBaseUrl || "http://localhost:5000";
+
+  /* ---------- Lấy & sort tất cả devices từ API DB ---------- */
+  const fetchAllDevices = useCallback(async () => {
+    try {
+      setDevLoading(true);
+      setDevErr("");
+      // BE: GET /api/devices -> [{ deviceId, name, relay, ... }]
+      const list = await apiFetch("/api/devices", {}, apiBase);
+      const arr = Array.isArray(list) ? list : [];
+      // sort: name asc (locale), fallback deviceId
+      arr.sort((a, b) => {
+        const an = String(a?.name || "").trim();
+        const bn = String(b?.name || "").trim();
+        const ai = String(a?.deviceId || "").trim();
+        const bi = String(b?.deviceId || "").trim();
+        const byName = an.localeCompare(bn, undefined, { sensitivity: "base" });
+        return byName !== 0 ? byName : ai.localeCompare(bi);
+      });
+      // map sang cấu trúc row cho bảng relay
+      const rows = arr.map((d) => ({
+        id: String(d.deviceId),
+        name: d.name || d.deviceId,
+        relay: Number(d.relay || 0),
+      }));
+      setApiDevices(rows);
+      // Nếu user chưa có mapping trong draft, khởi tạo bằng danh sách từ API
+      setDraft((prev) => {
+        if (Array.isArray(prev.relayMap) && prev.relayMap.length) return prev;
+        return { ...prev, relayMap: rows };
+      });
+    } catch (e) {
+      setDevErr(e.message || "Failed to load devices");
+      // fallback: giữ nguyên relayMap trong draft nếu có, không thì để rỗng
+    } finally {
+      setDevLoading(false);
+    }
+  }, [apiBase]);
+
+  // Tự fetch khi vào tab "relays" lần đầu hoặc đổi apiBase
+  useEffect(() => {
+    if (tab === "relays") fetchAllDevices();
+  }, [tab, fetchAllDevices]);
+  useEffect(() => {
+    // nếu người dùng đổi API base ở tab Data & API, lần sang tab relays sẽ dùng base mới
+  }, [apiBase]);
+
   /* ---------- Relays tab state (persist in draft) ---------- */
   const relayTotal = Number(draft.relayTotal ?? 16);
 
-  // Nếu chưa có relayMap trong draft -> generate tuần tự 1..relayTotal
+  // Sinh mapping tuần tự dựa trên danh sách hiện có (ưu tiên apiDevices)
+  const seqRelayRows = useCallback(
+    (total) => {
+      const source = apiDevices.length
+        ? apiDevices
+        : [
+            // fallback cứng nếu BE không trả gì
+            { id: "in_use", name: "In Use" },
+            { id: "operating_lamp", name: "Operating Lamp" },
+            { id: "xray", name: "X-Ray" },
+            { id: "uv", name: "UV" },
+            { id: "heat_lamp", name: "Heating Lamp" },
+            { id: "general_light", name: "General Light" },
+            { id: "light_1", name: "Light 1" },
+            { id: "light_2", name: "Light 2" },
+            { id: "light_3", name: "Light 3" },
+            { id: "light_4", name: "Light 4" },
+          ];
+      return source.map((row, idx) => ({
+        ...row,
+        relay: idx < total ? idx + 1 : 0,
+      }));
+    },
+    [apiDevices]
+  );
+
+  // Nếu chưa có relayMap trong draft -> generate tuần tự dựa theo danh sách hiện có
   const relayRows = useMemo(
     () =>
       Array.isArray(draft.relayMap) && draft.relayMap.length
         ? draft.relayMap
         : seqRelayRows(relayTotal),
-    [draft.relayMap, relayTotal]
+    [draft.relayMap, relayTotal, seqRelayRows]
   );
 
   const relayOptions = useMemo(
@@ -139,6 +196,57 @@ export default function SettingsPage() {
       return { ...d, relayMap: next };
     });
   };
+  const resetRelayMapByApiOrder = async () => {
+  try {
+    setBusy(true);
+    setMsg("");
+
+    // nếu chưa có apiDevices thì nạp một lần từ API
+    let rows = apiDevices;
+    if (!rows.length) {
+      const list = await apiFetch("/api/devices", {}, apiBase);
+      const arr = Array.isArray(list) ? list : [];
+      arr.sort((a, b) => {
+        const an = String(a?.name || "");
+        const bn = String(b?.name || "");
+        const ai = String(a?.deviceId || "");
+        const bi = String(b?.deviceId || "");
+        const byName = an.localeCompare(bn, undefined, { sensitivity: "base" });
+        return byName !== 0 ? byName : ai.localeCompare(bi);
+      });
+      rows = arr.map((d) => ({
+        id: String(d.deviceId),
+        name: d.name || d.deviceId,
+        relay: Number(d.relay || 0),
+      }));
+      setApiDevices(rows);
+    }
+
+    // sort theo giá trị relay từ API (tăng dần), rồi name, rồi id
+    const sorted = [...rows].sort((a, b) => {
+      const ar = Number(a.relay || 0);
+      const br = Number(b.relay || 0);
+      if (ar !== br) return ar - br;
+      const byName = String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+      if (byName !== 0) return byName;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    // đánh số lại 1..relayTotal theo thứ tự đã sort (dư -> 0)
+    const renumbered = sorted.map((r, idx) => ({
+      ...r,
+      relay: idx < relayTotal ? idx + 1 : 0,
+    }));
+
+    setDraft((d) => ({ ...d, relayMap: renumbered }));
+    setMsg(t("Mapping reset by API relay order"));
+  } catch (e) {
+    setMsg(e.message || "Reset mapping failed");
+  } finally {
+    setBusy(false);
+    setTimeout(() => setMsg(""), 2000);
+  }
+};
   const setRelayTotal = (n) => setDraft((d) => ({ ...d, relayTotal: n }));
   const resetRelayMap = () =>
     setDraft((d) => ({
@@ -157,13 +265,10 @@ export default function SettingsPage() {
   }, [relayRows]);
 
   /* ---------- Relays API actions ---------- */
-  const apiBase = draft.apiBaseUrl || "http://localhost:5000";
-
   const saveRelayMapping = async () => {
     try {
       setBusy(true);
       setMsg("");
-      // chuyển đổi payload theo backend: [{deviceId, relay}, ...]
       const payload = relayRows.map((r) => ({ deviceId: r.id, relay: Number(r.relay || 0) }));
       await apiFetch("/api/devices/mapping", { method: "PUT", body: { mapping: payload } }, apiBase);
       setMsg(t("Mapping saved successfully"));
@@ -183,15 +288,15 @@ export default function SettingsPage() {
       const data = await apiFetch("/api/devices/mapping", {}, apiBase);
       // data: [{deviceId, relay}, ...]
       const byId = Object.fromEntries(
-        (Array.isArray(data) ? data : []).map((m) => [m.deviceId, Number(m.relay || 0)])
+        (Array.isArray(data) ? data : []).map((m) => [String(m.deviceId), Number(m.relay || 0)])
       );
-      setDraft((d) => {
-        const next = baseDevices.map((row) => ({
-          ...row,
-          relay: byId[row.id] ?? 0,
-        }));
-        return { ...d, relayMap: next };
-      });
+      // Gắn theo danh sách thiết bị đang có (ưu tiên apiDevices để giữ sort)
+      const source = apiDevices.length ? apiDevices : relayRows;
+      const next = source.map((row) => ({
+        ...row,
+        relay: byId[row.id] ?? 0,
+      }));
+      setDraft((d) => ({ ...d, relayMap: next }));
       setMsg(t("Loaded mapping from device"));
     } catch (e) {
       console.error("[settings/relays] load error:", e);
@@ -264,11 +369,8 @@ export default function SettingsPage() {
                     onChange={(e) => onChange("language", e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white"
                   >
-                    {languages.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
+                    <option value="en">English</option>
+                    <option value="vi">Tiếng Việt</option>
                   </select>
                 </Row>
 
@@ -354,6 +456,17 @@ export default function SettingsPage() {
                     />
                   </Row>
 
+                  <div className="flex items-center gap-3 mt-2">
+                    <button
+                      onClick={fetchAllDevices}
+                      className="px-3 py-1.5 rounded-xl border-2 border-slate-300 text-slate-700 hover:bg-white"
+                      disabled={devLoading}
+                    >
+                      {devLoading ? t("Loading devices...") : t("Reload devices from API")}
+                    </button>
+                    {!!devErr && <span className="text-rose-600 text-sm">{devErr}</span>}
+                  </div>
+
                   <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full text-sm">
                       <thead>
@@ -411,7 +524,7 @@ export default function SettingsPage() {
 
                   <div className="flex flex-wrap items-center gap-3 mt-4">
                     <button
-                      onClick={resetRelayMap}
+                      onClick={resetRelayMapByApiOrder}
                       className="px-4 py-2 rounded-xl border-2 border-slate-300 text-slate-700 hover:bg-white"
                     >
                       {t("Reset mapping")}
@@ -426,7 +539,7 @@ export default function SettingsPage() {
                     <button
                       onClick={saveRelayMapping}
                       disabled={busy || dupRelaySet.size > 0}
-                      className="px-4 py-2 rounded-xl border-2 border-emerald-400 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                      className="px-4 py-2 rounded-2xl border-2 border-emerald-400 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
                       title={dupRelaySet.size > 0 ? t("Fix duplicates first") : ""}
                     >
                       {t("Save mapping to device")}
