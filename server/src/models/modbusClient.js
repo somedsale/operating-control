@@ -182,7 +182,7 @@ module.exports = {
     if (!Array.isArray(states) || states.length !== 4)
       throw new Error('states must be array[4] of boolean');
     return enqueue(async () => {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 12; i++) {
         await writeCoilCore(i, !!states[i]); // tuần tự để tránh kẹt
       }
       return readDOStatesCore();

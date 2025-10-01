@@ -12,12 +12,12 @@ connect().then(() => {
   app.listen(port, async () => {
     console.log(`Server running on port ${port}`);
 // --- bật simulator khi không tắt bằng env ---
-    if (!process.env.DISABLE_SIMULATOR) {
-      // startSensorSimulator();
-      startPressureSimulation();
-    }
-// startPlcSensor();
-// startDiPlcSync();
+    // if (!process.env.DISABLE_SIMULATOR) {
+    //   startSensorSimulator();
+    //   startPressureSimulation();
+    // }
+startPlcSensor();
+startDiPlcSync();
   });
 });
 

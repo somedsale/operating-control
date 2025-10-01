@@ -20,7 +20,7 @@ import {
 
 const items = [
   { id: "lighting",     to: "/lighting",     icon: faLightbulb,        label: "Lighting" },
-  { id: "ventilation",  to: "/ventilation",  icon: faFan,              label: "Ventilation" },
+  // { id: "ventilation",  to: "/ventilation",  icon: faFan,              label: "Ventilation" },
   { id: "control",      to: "/control",      icon: faRectangleList,    label: "Controls" },
   { id: "power",        to: "/power",        icon: faPlug,             label: "Power" },
   { id: "medical-gas",  to: "/medical-gas",  icon: faGaugeSimpleHigh,  label: "Gas" },

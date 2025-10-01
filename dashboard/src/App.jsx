@@ -38,7 +38,7 @@ export default function App() {
         <Route path="/lighting" element={<Lighting />} />
         <Route path="/control" element={<Control />} />
         <Route path="/medical-gas" element={<MedicalGas />} />
-        <Route path="/ventilation" element={<Ventilation />} />
+        {/* <Route path="/ventilation" element={<Ventilation />} /> */}
         <Route path="/power" element={<Power />} />
         <Route path="/music" element={<Music />} />
         <Route path="/history" element={<History />} />
