@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import logo from '../../assets/img/LogoMes.png'
+import logo from '../../assets/img/LogoMes.png';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faGear, faHouse } from '@fortawesome/free-solid-svg-icons';
 import { NavLink } from 'react-router-dom';

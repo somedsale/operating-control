@@ -1,32 +1,15 @@
-import { useEffect, useState, useCallback } from "react";
-import { useSelector } from "react-redux";
+// src/components/GlobalAlarm/index.jsx
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  fetchGas, fetchPower,
+  selectGas, selectPower,
+} from "../../features/status/statusSlice";
+import { useTranslation } from "react-i18next";
 
 /* ====== Poll interval từ settings (fallback 10s) ====== */
 const usePollSec = () =>
   useSelector((s) => s?.settings?.pollIntervalSec ?? 10);
-
-/* ====== Chuẩn hoá dữ liệu khí (0=Normal, 1=Fault) ====== */
-const GAS_ORDER = ["O2", "N2O", "MA4", "MA7", "VA", "CO2"];
-const shapeGas = (raw) => {
-  const by = {};
-  (raw || []).forEach((it) => {
-    const code = String(it?.code ?? it?.keyword ?? "").toUpperCase();
-    if (!GAS_ORDER.includes(code)) return;
-    const status = Number(it?.status) === 1 ? 1 : 0;
-    by[code] = { code, status };
-  });
-  return GAS_ORDER.map((c) => by[c] ?? { code: c, status: 0 });
-};
-
-/* ====== Chuẩn hoá Power (true=Fault, false=Normal) ====== */
-const POWER_KEYS = ["ups", "ips", "main"];
-const shapePower = (raw) => {
-  const arr = Array.isArray(raw) ? raw : [];
-  const byKey = Object.fromEntries(
-    arr.map((it) => [String(it?.key || "").toLowerCase(), !!it?.status])
-  );
-  return POWER_KEYS.map((k) => ({ key: k, fault: !!byKey[k] }));
-};
 
 /* ====== WebAudio beep (offline) ====== */
 let audioCtx;
@@ -51,59 +34,42 @@ async function tone(freq = 900, durMs = 140, type = "square", gain = 0.08) {
   g.disconnect();
 }
 async function alarmBeepPattern() {
-  // beep đôi ngắn
   await tone(920, 140, "square", 0.09);
   await sleep(120);
   await tone(920, 140, "square", 0.09);
 }
 
-/* ====== Component toàn cục (floating button bottom-right) ====== */
 export default function GlobalAlarm() {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
   const pollIntervalSec = usePollSec();
 
-  const [faultGas, setFaultGas] = useState(false);
-  const [faultPower, setFaultPower] = useState(false);
+  // lấy từ Redux
+  const gas = useSelector(selectGas);       // [{code,status,fault}]
+  const power = useSelector(selectPower);   // [{key,fault}]
+  const faultGas = gas.some((g) => g.fault);
+  const faultPower = power.some((p) => p.fault);
   const hasFault = faultGas || faultPower;
 
-  const [muted, setMuted] = useState(() => {
-    const v = localStorage.getItem("alarmMuted");
-    return v === "1";
-  });
+  const [muted, setMuted] = useState(() => localStorage.getItem("alarmMuted") === "1");
+  const [faultSig, setFaultSig] = useState(""); // "G:O2,CO2|P:ips"
+  const prevFaultSigRef = useRef("");
+  const [mutedIncidentSig, setMutedIncidentSig] = useState(
+    () => localStorage.getItem("alarmMutedIncidentSig") || ""
+  );
 
-  // Unlock audio sau 1 lần chạm
+  // Unlock audio 1 lần
   useEffect(() => {
-    const unlock = () => {
-      try { ensureAudioCtx(); } catch {}
-    };
+    const unlock = () => { try { ensureAudioCtx(); } catch {} };
     window.addEventListener("pointerdown", unlock, { once: true });
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
-  // Poll cả GAS + POWER
-  const loadAll = useCallback(async () => {
-    try {
-      const [gasRes, powerRes] = await Promise.allSettled([
-        fetch("/api/gas"),
-        fetch("/api/power"),
-      ]);
-
-      // GAS
-      if (gasRes.status === "fulfilled") {
-        const data = await gasRes.value.json().catch(() => []);
-        const shaped = shapeGas(Array.isArray(data?.data) ? data.data : data);
-        setFaultGas(shaped.some((g) => g.status === 1));
-      }
-
-      // POWER
-      if (powerRes.status === "fulfilled") {
-        const pData = await powerRes.value.json().catch(() => []);
-        const shapedP = shapePower(Array.isArray(pData?.data) ? pData.data : pData);
-        setFaultPower(shapedP.some((p) => p.fault));
-      }
-    } catch {
-      // Không đổi trạng thái khi lỗi tổng; để lần poll sau cập nhật
-    }
-  }, []);
+  // Poll DUY NHẤT ở đây
+  const loadAll = useCallback(() => {
+    dispatch(fetchGas());
+    dispatch(fetchPower());
+  }, [dispatch]);
 
   useEffect(() => {
     loadAll();
@@ -111,27 +77,79 @@ export default function GlobalAlarm() {
     return () => clearInterval(id);
   }, [loadAll, pollIntervalSec]);
 
-  // Phát tiếng khi có lỗi & chưa mute (định kỳ)
+  // cập nhật chữ ký sự cố để beep
+  useEffect(() => {
+    const gasCodes = gas.filter((g) => g.fault).map((g) => g.code);
+    const powKeys = power.filter((p) => p.fault).map((p) => p.key);
+    const sigG = gasCodes.length ? `G:${gasCodes.sort().join(",")}` : "";
+    const sigP = powKeys.length ? `P:${powKeys.sort().join(",")}` : "";
+    setFaultSig([sigG, sigP].filter(Boolean).join("|"));
+  }, [gas, power]);
+
+  // Lắng nghe yêu cầu tắt tiếng ngay (từ nút "Tắt báo động IPS")
+  useEffect(() => {
+    const onMuteNow = () => {
+      setMuted(true);
+      localStorage.setItem("alarmMuted", "1");
+      const sig = faultSig || "";
+      setMutedIncidentSig(sig);
+      if (sig) localStorage.setItem("alarmMutedIncidentSig", sig);
+      else localStorage.removeItem("alarmMutedIncidentSig");
+    };
+    window.addEventListener("alarm:mute-now", onMuteNow);
+    return () => window.removeEventListener("alarm:mute-now", onMuteNow);
+  }, [faultSig]);
+
+  // Phát tiếng định kỳ khi có lỗi & chưa mute
   useEffect(() => {
     let id;
     if (hasFault && !muted) {
-      alarmBeepPattern(); // kêu ngay
-      id = setInterval(alarmBeepPattern, 6000); // lặp
+      alarmBeepPattern();
+      id = setInterval(alarmBeepPattern, 6000);
     }
     return () => id && clearInterval(id);
   }, [hasFault, muted]);
 
-  // Label nút theo nguồn lỗi
-  let label = "No Fault";
-  if (faultGas && faultPower) label = "Gas + Power Fault";
-  else if (faultGas) label = "Gas Fault";
-  else if (faultPower) label = "Power Fault";
+  // ❗ TỰ ĐỘNG BẬT TIẾNG khi có SỰ CỐ MỚI (khác incident trước)
+  useEffect(() => {
+    const prev = prevFaultSigRef.current;
+    if (faultSig !== prev) {
+      prevFaultSigRef.current = faultSig;
 
-  // Toggle mute + lưu localStorage
+      // Khi hết lỗi hoàn toàn → reset "incident muted"
+      if (!faultSig) {
+        if (mutedIncidentSig !== "") {
+          setMutedIncidentSig("");
+          localStorage.removeItem("alarmMutedIncidentSig");
+        }
+        return;
+      }
+
+      // Nếu là lỗi MỚI (khác mutedIncidentSig đã ghi), tự động bật lại tiếng
+      if (faultSig !== mutedIncidentSig) {
+        setMuted(false);
+        localStorage.setItem("alarmMuted", "0");
+        // cập nhật incident sig để lần sau còn so sánh
+        setMutedIncidentSig(faultSig);
+        localStorage.setItem("alarmMutedIncidentSig", faultSig);
+      }
+    }
+  }, [faultSig, mutedIncidentSig]);
+
+  // Label
+  let label = t("alarm.noFault", "No Fault");
+  if (faultGas && faultPower) label = t("alarm.gasPowerFault", "Gas + Power Fault");
+  else if (faultGas) label = t("alarm.gasFault", "Gas Fault");
+  else if (faultPower) label = t("alarm.powerFault", "Power Fault");
+
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
     localStorage.setItem("alarmMuted", next ? "1" : "0");
+    const sig = faultSig || "";
+    setMutedIncidentSig(sig);
+    if (sig) localStorage.setItem("alarmMutedIncidentSig", sig);
+    else localStorage.removeItem("alarmMutedIncidentSig");
   };
 
   return (
@@ -149,9 +167,9 @@ export default function GlobalAlarm() {
         ].join(" ")}
         aria-pressed={!muted}
         aria-live="polite"
-        title={muted ? "Unmute alarm" : "Mute alarm"}
+        title={muted ? t("alarm.unmute", "Unmute alarm") : t("alarm.mute", "Mute alarm")}
       >
-        {muted ? "Alarm Muted" : label}
+        {muted ? t("alarm.muted", "Alarm Muted") : label}
       </button>
     </div>
   );

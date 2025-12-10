@@ -7,8 +7,8 @@ const { connect } = require('../../config/database'); // chỉnh path nếu khá
 const Power = require('../models/Power');
 
 const DEFAULTS = [
-  { key: 'ups',  title: 'UPS Status',             status: true  },
   { key: 'ips',  title: 'IPS Status',             status: true  },
+  { key: 'ups',  title: 'UPS Status',             status: true  },
   { key: 'main', title: 'Main Supply Status',     status: true  },
 ];
 

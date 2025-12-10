@@ -9,6 +9,8 @@ const SensorReadingSchema = new mongoose.Schema(
   },
   { versionKey: false }
 );
+// ✅ TTL Index: tự động xoá sau 2 ngày (48h = 172800 giây)
+SensorReadingSchema.index({ ts: 1 }, { expireAfterSeconds: 172800 });
 
 SensorReadingSchema.index({ type: 1, ts: -1 });
 

@@ -1,3 +1,4 @@
+// src/layout/NavBar/index.jsx (hoặc đường dẫn file bạn gửi)
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
@@ -6,47 +7,69 @@ import { setActive } from "../../store/activeSlice";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faLightbulb,
-  faFan,
   faRectangleList,
   faPlug,
   faGaugeSimpleHigh,
-  faClockRotateLeft,
+  faStopwatch,
   faThermometerHalf,
   faDroplet,
   faChartBar,
   faChartLine,
-  faStopwatch,            // ⬅️ thêm icon Timer
+  faFilter, // 👈 NEW
 } from "@fortawesome/free-solid-svg-icons";
 
+/* ====== NAV DATA (cột chính) ====== */
 const items = [
-  { id: "lighting",     to: "/lighting",     icon: faLightbulb,        label: "Lighting" },
-  // { id: "ventilation",  to: "/ventilation",  icon: faFan,              label: "Ventilation" },
-  { id: "control",      to: "/control",      icon: faRectangleList,    label: "Controls" },
-  { id: "power",        to: "/power",        icon: faPlug,             label: "Power" },
-  { id: "medical-gas",  to: "/medical-gas",  icon: faGaugeSimpleHigh,  label: "Gas" },
-  { id: "timer",        to: "/timer",        icon: faStopwatch,        label: "Timer" }, // ⬅️ thêm tab Timer
-  { id: "history",      to: "/history",      icon: faClockRotateLeft,  label: "History" },
+  { id: "lighting",     to: "/lighting",     icon: faLightbulb,       label: "Lighting",    accent: "emerald" },
+  { id: "control",      to: "/control",      icon: faRectangleList,   label: "Controls",    accent: "blue"    },
+  { id: "power",        to: "/power",        icon: faPlug,            label: "Power",       accent: "amber"   },
+  { id: "medical-gas",  to: "/medical-gas",  icon: faGaugeSimpleHigh, label: "Gas",         accent: "rose"    },
+  { id: "timer",        to: "/timer",        icon: faStopwatch,       label: "Timer",       accent: "violet"  },
 ];
 
+/* ====== Quick chips (đi thẳng view đồ thị) ======
+   - Giữ 2 chip có sẵn: nhiệt độ & độ ẩm
+   - Thêm 2 chip mới: áp suất phòng & áp suất lọc
+*/
+const chipTargets = [
+  { id: "temperature",   to: "/temperature",      iconL: faThermometerHalf, iconR: faChartBar,  label: "GRAPH" },
+  { id: "humidity",      to: "/humidity",         iconL: faDroplet,         iconR: faChartLine, label: "GRAPH" },
+  { id: "pressure-room", to: "/pressure/room",    iconL: faGaugeSimpleHigh, iconR: faChartLine, label: "GRAPH" }, // 👈 NEW
+  { id: "pressure-filter", to: "/pressure/filter", iconL: faFilter,          iconR: faChartLine, label: "GRAPH" }, // 👈 NEW
+];
+
+/* ====== STYLES ====== */
 const baseBtn =
-  "flex items-center gap-3 w-full rounded-[20px] px-4 py-3 border-2 shadow-sm bg-white/70 backdrop-blur transition";
+  "group relative flex items-center gap-4 w-full rounded-2xl px-4 py-3 border transition shadow-sm bg-white/80 backdrop-blur";
 const inactive =
-  "border-gray-300 text-gray-500 hover:bg-white hover:border-gray-400";
+  "border-slate-300 text-slate-600 hover:bg-white hover:-translate-y-[1px]";
 const active =
-  "border-blue-400 text-blue-700 bg-blue-50 ring-1 ring-blue-200";
+  "border-transparent text-blue-800 bg-gradient-to-r from-blue-50 to-white ring-2 ring-blue-200 shadow";
 
-const iconWrap = (isActive) =>
+const iconWrap = (isActive, accent) =>
   [
-    "w-10 h-10 grid place-items-center rounded-full border-2",
-    isActive ? "border-blue-400 text-blue-600 bg-white" : "border-gray-300 text-gray-500 bg-white",
-  ].join(" ");
+    "w-12 h-12 grid place-items-center rounded-xl border-2 transition-colors shrink-0",
+    isActive
+      ? "bg-white border-white/80"
+      : "bg-white/80 border-slate-300 text-slate-500",
+    isActive && accent === "emerald" && "text-emerald-600",
+    isActive && accent === "blue" && "text-blue-600",
+    isActive && accent === "amber" && "text-amber-600",
+    isActive && accent === "rose" && "text-rose-600",
+    isActive && accent === "violet" && "text-violet-600",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-// style cho chip GRAPH
+const labelCls =
+  "text-[clamp(15px,1.9vw,18px)] font-semibold tracking-wide capitalize";
+
 const chipBase =
-  "flex items-center gap-2 rounded-[16px] px-3 py-2 border-2 shadow-sm transition bg-white/70";
-const chipInactive = "border-gray-300 text-gray-500 hover:border-gray-400";
-const chipActive = "border-blue-400 text-blue-700 bg-blue-50 ring-1 ring-blue-200";
+  "flex items-center gap-2 rounded-xl px-3 py-2 border text-[12px] font-semibold transition bg-white/80 backdrop-blur";
+const chipInactive = "border-slate-300 text-slate-600 hover:bg-white";
+const chipActive = "border-blue-300 text-blue-700 bg-blue-50 ring-1 ring-blue-200";
 
+/* ====== COMPONENT ====== */
 export default function NavBar() {
   const { t } = useTranslation();
   const dispatch = useDispatch();
@@ -60,47 +83,60 @@ export default function NavBar() {
           to={it.to}
           onClick={() => dispatch(setActive(it.id))}
           className={({ isActive }) =>
-            [baseBtn, (isActive || value === it.id) ? active : inactive].join(" ")
+            [
+              baseBtn,
+              (isActive || value === it.id) ? active : inactive,
+              "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200",
+            ].join(" ")
           }
+          aria-label={t(it.label)}
         >
           {({ isActive }) => (
             <>
-              <div className={iconWrap(isActive || value === it.id)}>
-                <FontAwesomeIcon icon={it.icon} />
+              {(isActive || value === it.id) && (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-0 h-full w-[6px] rounded-l-2xl bg-gradient-to-b from-blue-400 to-blue-600"
+                />
+              )}
+
+              <div className={iconWrap(isActive || value === it.id, it.accent)}>
+                <FontAwesomeIcon className="text-xl" icon={it.icon} />
               </div>
-              <span className="text-base font-semibold">
-                {t(it.label.toLowerCase())}
-              </span>
+
+              <div className="flex flex-col">
+                <span className={labelCls}>{t(it.label)}</span>
+                <span className="text-[11px] text-slate-400 leading-tight">
+                  {it.id === "medical-gas" ? t("Medical Gas") : " "}
+                </span>
+              </div>
             </>
           )}
         </NavLink>
       ))}
 
-      {/* Quick chips (GRAPH) có trạng thái active */}
+      {/* Quick chips (GRAPH) */}
       <div className="grid grid-cols-2 gap-3 pt-1">
-        <NavLink
-          to="/temperature"
-          onClick={() => dispatch(setActive("temperature"))}
-          className={({ isActive }) =>
-            [chipBase, (isActive || value === "temperature") ? chipActive : chipInactive].join(" ")
-          }
-        >
-          <FontAwesomeIcon icon={faThermometerHalf} className="text-sm" />
-          <FontAwesomeIcon icon={faChartBar} className="text-sm" />
-          <span className="text-[11px] ml-auto">GRAPH</span>
-        </NavLink>
-
-        <NavLink
-          to="/humidity"
-          onClick={() => dispatch(setActive("humidity"))}
-          className={({ isActive }) =>
-            [chipBase, (isActive || value === "humidity") ? chipActive : chipInactive].join(" ")
-          }
-        >
-          <FontAwesomeIcon icon={faDroplet} className="text-sm" />
-          <FontAwesomeIcon icon={faChartLine} className="text-sm" />
-          <span className="text-[11px] ml-auto">GRAPH</span>
-        </NavLink>
+        {chipTargets.map((ch) => (
+          <NavLink
+            key={ch.id}
+            to={ch.to}
+            onClick={() => dispatch(setActive(ch.id))}
+            className={({ isActive }) =>
+              [chipBase, (isActive || value === ch.id) ? chipActive : chipInactive].join(" ")
+            }
+            title={
+              ch.id === "temperature"     ? t("Temperature") :
+              ch.id === "humidity"        ? t("Humidity") :
+              ch.id === "pressure-room"   ? t("Room Pressure") :
+              /* pressure-filter */          t("Filter Pressure")
+            }
+          >
+            <FontAwesomeIcon icon={ch.iconL} className="text-sm" />
+            <FontAwesomeIcon icon={ch.iconR} className="text-sm" />
+            <span className="text-[11px] ml-auto">{ch.label}</span>
+          </NavLink>
+        ))}
       </div>
     </aside>
   );

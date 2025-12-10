@@ -30,6 +30,19 @@
         "music": "music",
         "history": "history",
         "Error Reporting History":"Error Reporting History",
-        "emergency":"emergency"
+        "emergency":"emergency",
+         "pin": {
+    "dialog_label": "PIN dialog",
+    "title": "Enter PIN",
+    "subtitle": "Settings page protection — PIN is required each time",
+    "field_aria": "PIN input (masked)",
+    "backspace": "Backspace",
+    "clear": "Clear",
+    "ok": "OK",
+    "checking": "Checking…",
+    "error_invalid": "Invalid PIN",
+    "key_n": "Key {{n}}"
+  }
+  
     }
 }

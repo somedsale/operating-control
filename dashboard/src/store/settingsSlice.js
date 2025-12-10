@@ -5,7 +5,7 @@ const LS_KEY = "app.settings.v2";
 
 // Mặc định đầy đủ các field bạn đang dùng
 const defaults = {
-  language: "en",                // 'en' | 'vi'
+  language: "vi",                // 'en' | 'vi'
   timeFormat: "24h",             // '24h' | '12h'
   theme: "light",                // 'light' | 'dark'
   fullscreenOnStart: false,

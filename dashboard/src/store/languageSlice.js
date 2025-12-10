@@ -4,7 +4,7 @@ import i18n from '../i18n';
 const languageSlice = createSlice({
   name: 'language',
   initialState: {
-    currentLanguage: i18n.language || 'en', // Lấy ngôn ngữ mặc định từ i18n
+    currentLanguage: i18n.language || 'vi', // Lấy ngôn ngữ mặc định từ i18n
   },
   reducers: {
     setLanguage: (state, action) => {

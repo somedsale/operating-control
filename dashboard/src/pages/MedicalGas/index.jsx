@@ -1,12 +1,13 @@
 // src/pages/MedicalGas/index.jsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import Divider from "../../components/Divider";
 import Normal from "../../components/Normal";
 import Fault from "../../components/Fault";
-import { getAllGas } from "../../features/api/apiClient";
-import { fetchDataFailure } from "../../features/api/apiSlice";
-import { useDispatch, useSelector } from "react-redux";
+import { useSelector } from "react-redux";
+import {
+  selectGas, selectGasLoading, selectGasError, selectGasUpdatedAt,
+} from "../../features/status/statusSlice";
 
 /** Thứ tự cố định 6 khí */
 const ORDER = ["O2", "N2O", "MA4", "MA7", "VA", "CO2"];
@@ -21,87 +22,49 @@ const LABEL = {
   CO2: "carbon dioxide",
 };
 
-/** Dự phòng khi API lỗi/trống (0: Normal, 1: Fault) */
-const SAMPLE = [
-  { code: "O2", status: 0 },
-  { code: "N2O", status: 0 },
-  { code: "MA4", status: 0 },
-  { code: "MA7", status: 0 },
-  { code: "VA", status: 0 },
-  { code: "CO2", status: 0 },
-];
+/** Hai hàng: High (trên), Low (dưới) */
+function StatusPair({ code, status, t }) {
+  const statusNum = Number(status);
+  const hasHigh = code !== "VA";
+  const isHigh = statusNum === 1;
+  const isLow  = statusNum === 2;
 
-/** Chỉ giữ 0|1 và đúng ORDER */
-function shapeGas(raw) {
-  const norm = (v) => (Number(v) === 1 ? 1 : 0);
-  const by = {};
-  (raw || []).forEach((it) => {
-    const code = String(it?.code ?? it?.keyword ?? "").toUpperCase();
-    if (ORDER.includes(code)) by[code] = { code, status: norm(it?.status) };
-  });
-  return ORDER.map((c) => by[c] ?? SAMPLE.find((s) => s.code === c));
+  const HighPill = isHigh
+    ? <Fault lable={String(t("High")).toUpperCase()} />
+    : <Normal lable={String(t("High")).toUpperCase()} />;
+
+  const LowPill = isLow
+    ? <Fault lable={String(t("Low")).toUpperCase()} />
+    : <Normal lable={String(t("Low")).toUpperCase()} />;
+
+  return (
+    <div className="flex flex-col items-center space-y-2">
+      <div className="min-h-[36px] flex items-center justify-center">
+        {hasHigh ? (
+          HighPill
+        ) : (
+          <div className="invisible pointer-events-none">
+            <Normal lable={String(t("High")).toUpperCase()} />
+          </div>
+        )}
+      </div>
+      <div className="min-h-[36px] flex items-center justify-center">
+        {LowPill}
+      </div>
+    </div>
+  );
 }
 
 export default function MedicalGas() {
   const { t } = useTranslation();
-  const dispatch = useDispatch();
 
-  const pollIntervalSec = useSelector((s) => s?.settings?.pollIntervalSec ?? 10);
+  // đọc từ Redux
+  const gas = useSelector(selectGas);               // [{code,status,fault}]
+  const loading = useSelector(selectGasLoading);
+  const errText = useSelector(selectGasError);
+  const updatedAtMs = useSelector(selectGasUpdatedAt);
 
-  const [gas, setGas] = useState(SAMPLE);
-  const [loading, setLoading] = useState(true);
-  const [errText, setErrText] = useState("");
-  const [updatedAt, setUpdatedAt] = useState(null);
-
-  const mountedRef = useRef(true);
-  const timerRef = useRef(null);
-
-  const loadGas = async () => {
-    try {
-      setErrText("");
-      setLoading(true);
-      const res = await getAllGas(); // API: GET /api/gas -> [{ code, status(0|1) }]
-      const arr = Array.isArray(res?.data) ? res.data : [];
-      if (!mountedRef.current) return;
-      setGas(shapeGas(arr));
-      setUpdatedAt(new Date());
-    } catch (e) {
-      dispatch(fetchDataFailure(e?.message ?? "getAllGas error"));
-      if (!mountedRef.current) return;
-      setGas(shapeGas([])); // fallback SAMPLE theo đúng ORDER
-      setErrText(e?.message || "Failed to load gas status");
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    mountedRef.current = true;
-    loadGas();
-    const ms = Math.max(1, Number(pollIntervalSec || 10)) * 1000;
-    timerRef.current = setInterval(loadGas, ms);
-    return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollIntervalSec]);
-
-  /** Tính có lỗi tổng thể hay không (để đổi viền khối) */
-  const hasAnyFault = useMemo(() => gas.some((g) => g.status === 1), [gas]);
-
-  /** Nút hiển thị trạng thái: Normal/Fault */
-  const StatusPill = ({ status }) => {
-    return (
-      <div className="min-w-[120px] flex justify-center">
-        {status === 1 ? (
-          <Fault lable={t("fault")} />
-        ) : (
-          <Normal lable={t("normal")} />
-        )}
-      </div>
-    );
-  };
+  const hasAnyFault = useMemo(() => gas.some((g) => g.status !== 0), [gas]);
 
   return (
     <div className="w-full px-3 md:px-6">
@@ -111,22 +74,16 @@ export default function MedicalGas() {
 
       {/* trạng thái tải & lỗi */}
       <div className="flex flex-wrap items-center justify-center gap-3 my-2">
-        <button
-          onClick={loadGas}
-          className="px-3 py-1 text-sm rounded-lg border border-slate-300 hover:bg-white"
-        >
-          {t("Refresh")}
-        </button>
         {loading && <span className="text-sm text-slate-500">{t("Loading")}...</span>}
         {!!errText && <span className="text-sm text-rose-600">{errText}</span>}
-        {!!updatedAt && !loading && (
+        {!!updatedAtMs && !loading && (
           <span className="text-xs text-slate-400">
-            {t("Updated")}: {updatedAt.toLocaleTimeString()}
+            {t("Updated")}: {new Date(updatedAtMs).toLocaleTimeString()}
           </span>
         )}
       </div>
 
-      {/* Khối 6 khí: label + 1 trạng thái duy nhất */}
+      {/* Khối 6 khí */}
       <div
         className={[
           "rounded-2xl p-4 md:p-6 shadow-sm backdrop-blur",
@@ -141,15 +98,13 @@ export default function MedicalGas() {
           ))}
         </div>
 
-        <div className="h-3 md:h-4" />
+        <div className="h-2 md:h-3" />
 
-        {/* Hàng trạng thái Normal/Fault */}
+        {/* Hàng trạng thái */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 md:gap-6">
           {gas.map((g) => (
             <div key={g.code} className="flex justify-center">
-              <div className="my-2">
-                <StatusPill status={g.status} />
-              </div>
+              <StatusPair code={g.code} status={g.status} t={t} />
             </div>
           ))}
         </div>

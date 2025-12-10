@@ -4,7 +4,6 @@ import { useDispatch, useSelector } from "react-redux";
 import { useTranslation } from "react-i18next";
 import Divider from "../../components/Divider";
 import TemperatureChart from "../../components/Charts/TemperatureChart";
-import { getHumidity } from "../../features/api/apiClient";
 import { fetchDataFailure } from "../../features/api/apiSlice";
 
 const MAX_POINTS = 24 * 60; // 1440 điểm ~ mỗi phút trong ngày
@@ -64,13 +63,13 @@ export default function HumidityPage() {
       "http://localhost:5000"
   );
 
-  const [current, setCurrent] = useState(0);
-  const [series, setSeries] = useState([]); // [{timestamp, value}]
+  const liveHum = useSelector((s) => s.live?.humidity); // 👈 lấy từ Redux
+  const [series, setSeries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const keyRef = useRef(ymdKey()); // cache key theo ngày
 
-  // Đọc cache theo ngày
+  /* --- đọc/lưu cache --- */
   const loadCache = useCallback(() => {
     try {
       const raw = localStorage.getItem(`hist.humd.${keyRef.current}`);
@@ -81,7 +80,6 @@ export default function HumidityPage() {
     }
   }, []);
 
-  // Lưu cache theo ngày
   const saveCache = useCallback((rows) => {
     try {
       localStorage.setItem(
@@ -91,20 +89,15 @@ export default function HumidityPage() {
     } catch {}
   }, []);
 
-  // Đổi ngày → key mới
   const rolloverDayIfNeeded = useCallback(() => {
     const nowKey = ymdKey();
     if (nowKey !== keyRef.current) {
       keyRef.current = nowKey;
       const restored = loadCache();
       setSeries(restored);
-      if (restored.length) {
-        setCurrent(restored[restored.length - 1].value);
-      }
     }
   }, [loadCache]);
 
-  // Thêm điểm mới + lưu cache
   const append = useCallback(
     (value, ts = Date.now()) => {
       rolloverDayIfNeeded();
@@ -118,14 +111,13 @@ export default function HumidityPage() {
     [rolloverDayIfNeeded, saveCache]
   );
 
-  // 1) Khôi phục cache khi mở trang
+  /* --- Khôi phục cache khi mở trang --- */
   useEffect(() => {
     const restored = loadCache();
     setSeries(restored);
-    if (restored.length) setCurrent(restored[restored.length - 1].value);
   }, [loadCache]);
 
-  // 2) Lịch sử hôm nay từ API
+  /* --- Lịch sử hôm nay từ API --- */
   const fetchHistoryToday = useCallback(async () => {
     try {
       setLoading(true);
@@ -143,7 +135,6 @@ export default function HumidityPage() {
       setSeries((prev) => {
         const merged = mergeSeries(prev, mapped);
         saveCache(merged);
-        if (merged.length) setCurrent(merged[merged.length - 1].value);
         return merged;
       });
     } catch (err) {
@@ -153,39 +144,27 @@ export default function HumidityPage() {
     }
   }, [apiBase, dispatch, saveCache]);
 
-  // 3) Giá trị hiện tại mỗi 10s
-  const fetchCurrent = useCallback(async () => {
-    try {
-      rolloverDayIfNeeded();
-      const res = await getHumidity();
-      const v = Number(res.data);
-      setCurrent(v);
-      append(v);
-    } catch (err) {
-      dispatch(fetchDataFailure(err?.message ?? "getHumidity error"));
-    }
-  }, [append, dispatch, rolloverDayIfNeeded]);
-
-  // Chu trình tải dữ liệu
+  /* --- Khi Redux liveHum thay đổi → thêm vào series --- */
   useEffect(() => {
-    // Lần đầu: hợp nhất cache + lịch sử API, rồi poll hiện tại
-    fetchHistoryToday().then(fetchCurrent);
+    if (Number.isFinite(liveHum)) append(liveHum);
+  }, [liveHum, append]);
 
-    const id = setInterval(fetchCurrent, 10000);            // hiện tại 10s
-    const idHist = setInterval(fetchHistoryToday, 5 * 60 * 1000); // lịch sử 5'
-    const idDay = setInterval(rolloverDayIfNeeded, 30 * 1000);     // đổi ngày
-
+  /* --- Làm tươi lịch sử + rollover ngày --- */
+  useEffect(() => {
+    fetchHistoryToday();
+    const idHist = setInterval(fetchHistoryToday, 5 * 60 * 1000);
+    const idDay = setInterval(rolloverDayIfNeeded, 30 * 1000);
     return () => {
-      clearInterval(id);
       clearInterval(idHist);
       clearInterval(idDay);
     };
-  }, [fetchHistoryToday, fetchCurrent, rolloverDayIfNeeded]);
+  }, [fetchHistoryToday, rolloverDayIfNeeded]);
 
-  const currentStr = useMemo(
-    () => (current?.toFixed ? current.toFixed(1) : current),
-    [current]
-  );
+  /* --- Hiển thị giá trị hiện tại --- */
+  const currentStr = useMemo(() => {
+    if (!Number.isFinite(liveHum)) return "--";
+    return liveHum.toFixed(1);
+  }, [liveHum]);
 
   return (
     <div className="w-full px-3 md:px-6">
@@ -196,9 +175,12 @@ export default function HumidityPage() {
       <div className="bg-white/70 backdrop-blur rounded-2xl shadow-sm p-4 md:p-6">
         <div className="flex items-baseline justify-between">
           <div className="text-slate-600">
-            {t("Current")}: <span className="font-semibold">{currentStr} H%</span>
+            {t("Current")}:{" "}
+            <span className="font-semibold">{currentStr} H%</span>
           </div>
-          {loading && <div className="text-sm text-slate-400">{t("Loading")}…</div>}
+          {loading && (
+            <div className="text-sm text-slate-400">{t("Loading")}…</div>
+          )}
         </div>
 
         <div className="mt-3">

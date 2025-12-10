@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "main": "electron/main.js",
+  "homepage": "./",
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^6.7.2",
     "@fortawesome/free-brands-svg-icons": "^6.7.2",
@@ -26,13 +27,16 @@
     "react-router-dom": "^7.6.0",
     "react-scripts": "^5.0.1",
     "recharts": "^2.15.4",
+    "redux-persist": "^6.0.0",
+    "socket.io-client": "^4.8.1",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
-    "dev": "concurrently -k \"cross-env BROWSER=none react-scripts start\" \"wait-on tcp:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
-    "build:web": "react-scripts build",
-    "build:app": "npm run build:web && electron-builder -w",
+    "dev": "concurrently -k \"cross-env BROWSER=none react-scripts start\" \"wait-on http://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
+    "build": "react-scripts build",
+    "electron:dev": "concurrently -k \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electronmon .\"",
+    "electron:build": "npm run build && electron-builder",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -55,6 +59,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "extraMetadata": {
+      "main": "electron/main.js"
     }
   },
   "eslintConfig": {
@@ -83,6 +90,5 @@
     "electron-builder": "^26.0.12",
     "tailwindcss": "^3.4.17",
     "wait-on": "^7.0.1"
-  },
-  "proxy": "http://localhost:5000"
+  }
 }

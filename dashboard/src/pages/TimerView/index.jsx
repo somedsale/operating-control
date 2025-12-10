@@ -2,12 +2,15 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
+import { fetchDataFailure } from "../../features/api/apiSlice";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlay, faPause, faXmark, faCheck, faRotateRight,
   faTriangleExclamation, faCircleCheck, faCircleExclamation,
+  faKeyboard, faDeleteLeft
 } from "@fortawesome/free-solid-svg-icons";
+import NumericKeypad from "../../components/NumericKeypad";
 
 /* ---------- Helpers ---------- */
 const pad2 = (n) => String(Math.floor(n)).padStart(2, "0");
@@ -24,34 +27,48 @@ const toHMS = (sec) => {
   return { h: Math.floor(t / 3600), m: Math.floor((t % 3600) / 60), s: t % 60 };
 };
 
-// API helper (prefix bằng apiBase từ Settings)
+/* ---------- API helper (đồng nhất với Right) ---------- */
 function makeApiJson(base) {
-  return async function apiJson(url, opts) {
-    const res = await fetch(`${base}${url}`, opts);
+  return async function apiJson(url, opts = {}) {
+    const res = await fetch(`${base}${url}`, {
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      ...opts,
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
     return data;
   };
 }
+const normPoints = (payload) =>
+  Array.isArray(payload?.points)
+    ? payload.points.map((d) => ({ t: d.t, v: Number(d.v) }))
+    : Array.isArray(payload)
+    ? payload.map((d) => ({ t: d.t, v: Number(d.v) }))
+    : [];
+
+/* Chuẩn hoá mọi định dạng trả về của GET /api/devices */
+function normalizeDevices(resp) {
+  if (Array.isArray(resp)) return resp;
+  if (Array.isArray(resp?.devices)) return resp.devices;
+  if (Array.isArray(resp?.data)) return resp.data;
+  return [];
+}
 
 /* ------- Tiny sparkline (SVG) ------- */
 const Spark = ({ data = [], width = 200, height = 42, strokeWidth = 2, ariaLabel }) => {
-  // data: [{t: ISO, v: number}]
-  const { min, max, pts } = useMemo(() => {
-    if (!data.length) return { min: 0, max: 1, pts: "" };
+  const { pts } = useMemo(() => {
+    if (!data.length) return { pts: "" };
     const values = data.map(d => Number(d.v));
     const min = Math.min(...values);
     const max = Math.max(...values);
     const span = Math.max(1e-6, max - min);
     const stepX = data.length > 1 ? width / (data.length - 1) : 0;
-    const pts = data
-      .map((d, i) => {
-        const x = i * stepX;
-        const y = height - ((Number(d.v) - min) / span) * height; // 0 -> bottom
-        return `${x},${y}`;
-      })
-      .join(" ");
-    return { min, max, pts };
+    const pts = data.map((d, i) => {
+      const x = i * stepX;
+      const y = height - ((Number(d.v) - min) / span) * height;
+      return `${x},${y}`;
+    }).join(" ");
+    return { pts };
   }, [data, width, height]);
 
   return (
@@ -78,11 +95,13 @@ const styles = {
   red: "text-rose-600",
   blue: "text-blue-600",
   numWrap: "w-full inline-flex items-center justify-center whitespace-nowrap overflow-hidden leading-none px-2 sm:px-3",
-  btn: "w-12 h-12 grid place-items-center border border-gray-300 rounded-lg hover:bg-gray-50",
-  tinyBtn: "w-10 h-10 grid place-items-center border border-gray-300 rounded-md hover:bg-gray-50",
+  btn: "w-12 h-12 grid place-items-center border border-gray-300 rounded-lg hover:bg-gray-50 active:scale-[0.98]",
+  tinyBtn: "w-10 h-10 grid place-items-center border border-gray-300 rounded-md hover:bg-gray-50 active:scale-[0.98]",
   goBtn: "border border-gray-300 rounded-full px-5 py-2.5 text-gray-700 hover:bg-gray-50 text-[clamp(12px,1.6vw,16px)]",
   input: "w-24 outline-none text-center text-[clamp(12px,1.6vw,16px)]",
   hint: "mt-1 text-[clamp(11px,1.6vw,14px)] text-gray-400",
+  kbdBtn: "text-[clamp(16px,3.2vw,22px)] font-semibold h-14 rounded-xl border border-gray-300 bg-white/70 hover:bg-white active:scale-[0.98]",
+  kbdWide: "col-span-2",
 };
 
 /* ---------- Card shells ---------- */
@@ -93,7 +112,7 @@ const Card = ({ children, className = "" }) => (
 );
 
 /* Stat tile (ENV) */
-const StatTile = ({ label, value, unit, accent = "emerald", loading, error, footer }) => {
+const StatTile = ({ label, value, unit, accent = "emerald", loading, error, footer, t }) => {
   const accentText =
     accent === "blue" ? "text-blue-600" :
     accent === "rose" ? "text-rose-600" :
@@ -112,7 +131,7 @@ const StatTile = ({ label, value, unit, accent = "emerald", loading, error, foot
 
       {loading && (
         <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] rounded-xl grid place-items-center">
-          <svg className="animate-spin h-5 w-5 text-gray-500" viewBox="0 0 24 24">
+          <svg className="animate-spin h-5 w-5 text-gray-500" viewBox="0 0 24 24" aria-label={t("Loading")}>
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
           </svg>
@@ -120,7 +139,7 @@ const StatTile = ({ label, value, unit, accent = "emerald", loading, error, foot
       )}
       {error && !loading && (
         <div className="absolute top-2 right-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-[1px] flex items-center gap-1">
-          <FontAwesomeIcon icon={faTriangleExclamation} /> Error
+          <FontAwesomeIcon icon={faTriangleExclamation} /> {t("Error")}
         </div>
       )}
     </div>
@@ -133,11 +152,13 @@ const shapeGas = (raw) => {
   const by = {};
   (raw || []).forEach((it) => {
     const code = String(it?.code || it?.keyword || "").toUpperCase();
-    const status = Number.isFinite(Number(it?.status)) ? Number(it.status) : 0;
+    const s = Number(it?.status);
+    const status = Number.isFinite(s) ? s : 0; // 0=Normal, 1=High, 2=Low
     if (ORDER.includes(code)) by[code] = { code, status };
   });
   return ORDER.map((c) => by[c] ?? { code: c, status: 0 });
 };
+
 const AlarmCSS = () => (
   <style>{`
     @keyframes alarmInvert {
@@ -147,8 +168,11 @@ const AlarmCSS = () => (
     .alarm-invert { animation: alarmInvert 1s linear infinite; }
   `}</style>
 );
-const GasBadge = ({ code, status }) => {
-  const fault = status === 1;
+
+const GasBadge = ({ code, status, t }) => {
+  const s = Number(status);
+  const fault = s !== 0; // khác 0 là lỗi (đồng nhất view alarm)
+
   return (
     <div
       className={[
@@ -157,13 +181,13 @@ const GasBadge = ({ code, status }) => {
       ].join(" ")}
       title={code}
       role="status"
-      aria-label={`${code} ${fault ? "Fault" : "Normal"}`}
+      aria-label={`${code} ${fault ? t("Fault") : t("Normal")}`}
     >
       <div className="h-full flex items-center gap-1.5">
         <span>{code}</span>
         <span className="inline-flex items-center gap-1 text-[11px]">
           <FontAwesomeIcon icon={fault ? faCircleExclamation : faCircleCheck} />
-          {fault ? "Fault" : "OK"}
+          {fault ? t("Fault") : t("OK")}
         </span>
       </div>
     </div>
@@ -171,7 +195,7 @@ const GasBadge = ({ code, status }) => {
 };
 
 /* ---------- TapCard (Devices on right) ---------- */
-const TapCard = ({ title, sub, pressed, disabled, loading, onClick }) => (
+const TapCard = ({ title, sub, pressed, disabled, loading, onClick, loadingImg, t }) => (
   <div className="relative">
     <button
       type="button"
@@ -206,8 +230,9 @@ const TapCard = ({ title, sub, pressed, disabled, loading, onClick }) => (
               ? "bg-white/15 text-white border border-white/20"
               : "bg-emerald-600/10 text-emerald-700 border border-emerald-600/20",
           ].join(" ")}
+          aria-live="polite"
         >
-          {pressed ? "ON" : "OFF"}
+          {pressed ? t("ON") : t("OFF")}
         </span>
       </div>
     </button>
@@ -215,11 +240,17 @@ const TapCard = ({ title, sub, pressed, disabled, loading, onClick }) => (
     {loading && (
       <div className="absolute inset-0 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center z-10">
         <div className="flex flex-col items-center gap-2">
-          <svg className="animate-spin h-6 w-6 text-emerald-600" viewBox="0 0 24 24">
+          <img
+            src={loadingImg}
+            alt={t("Saving…")}
+            className="h-8 w-8"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+          <svg className="animate-spin h-6 w-6 text-emerald-600" viewBox="0 0 24 24" aria-hidden="true">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
           </svg>
-          <span className="text-sm text-emerald-700 font-medium">Saving…</span>
+          <span className="text-sm text-emerald-700 font-medium">{t("Saving…")}</span>
         </div>
       </div>
     )}
@@ -228,10 +259,15 @@ const TapCard = ({ title, sub, pressed, disabled, loading, onClick }) => (
 
 /* ---------- Component ---------- */
 export default function TimerTriple() {
+  const dispatch = useDispatch();
   const { t, i18n } = useTranslation();
+
   const timeFormat = useSelector((s) => s?.settings?.timeFormat ?? s?.settings?.value?.timeFormat ?? "24h");
   const apiBase = useSelector((s) => s?.settings?.apiBaseUrl || "http://localhost:5000");
-  const apiJson = useMemo(() => makeApiJson(apiBase), [apiBase]);
+  const apiBaseJson = useMemo(() => makeApiJson(apiBase), [apiBase]);
+
+  // Ảnh loading local
+  const LOADING_IMG = `${process.env.PUBLIC_URL || ""}/assets/loading.png`;
 
   /* Current time */
   const [now, setNow] = useState(new Date());
@@ -248,38 +284,46 @@ export default function TimerTriple() {
   const [anesLeft, setAnesLeft] = useState(DEFAULT_MIN * 60);
   const [anesRun, setAnesRun] = useState(false);
 
+  // Keypad modal
+  const [kpOpen, setKpOpen] = useState(false);
+  const openKeypad = () => setKpOpen(true);
+  const closeKeypad = () => setKpOpen(false);
+  const applyKeypadMinutes = (mins) => {
+    setAnesMinsInput(mins);
+    if (Number.isFinite(mins) && mins > 0) {
+      const secs = Math.round(mins * 60);
+      setAnesStart(secs);
+      setAnesLeft(secs);
+      setAnesRun(false);
+    }
+  };
+
   /* ====== AUDIO: cảnh báo countdown ====== */
   const audioRef = useRef(null);
   const audioUnlockedRef = useRef(false);
   const initAudio = () => {
     try {
-      if (!audioRef.current) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-        audioRef.current = new AC();
-      }
-      if (audioRef.current.state === "suspended") {
-        audioRef.current.resume();
-      }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audioRef.current) audioRef.current = new AC();
+      if (audioRef.current.state === "suspended") audioRef.current.resume();
       audioUnlockedRef.current = true;
-    } catch {/* ignore */}
+    } catch {}
   };
   const beep = (freq = 880, ms = 200, type = "sine", gain = 0.05) => {
     const ctx = audioRef.current;
     if (!ctx) return;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
+    osc.type = type; osc.frequency.value = freq;
     g.gain.value = 0.0001;
-    osc.connect(g);
-    g.connect(ctx.destination);
-    const t = ctx.currentTime;
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.01);
-    osc.start(t);
+    osc.connect(g); g.connect(ctx.destination);
+    const t0 = ctx.currentTime;
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+    osc.start(t0);
     const dur = ms / 1000;
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.stop(t + dur + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.stop(t0 + dur + 0.02);
   };
   const prevLeftRef = useRef(anesLeft);
   useEffect(() => {
@@ -299,7 +343,7 @@ export default function TimerTriple() {
     prevLeftRef.current = anesLeft;
   }, [anesLeft]);
 
-  /* ========= ENV stats + HISTORY (giống Right) ========= */
+  /* ========= ENV stats + HISTORY ========= */
   const [stats, setStats] = useState({
     temp: { v: null, loading: false, error: false },
     humi: { v: null, loading: false, error: false },
@@ -307,91 +351,89 @@ export default function TimerTriple() {
     pRoom: { v: null, loading: false, error: false },
     updatedAt: null,
   });
-  const [histTemp, setHistTemp] = useState([]);   // [{t,v}]
-  const [histHumd, setHistHumd] = useState([]);   // [{t,v}]
+  const [histTemp, setHistTemp] = useState([]);
+  const [histHumd, setHistHumd] = useState([]);
   const [histPFilter, setHistPFilter] = useState([]);
   const [histPRoom, setHistPRoom] = useState([]);
 
-  const loadStats = useCallback(async () => {
+
+
+const loadStats = useCallback(async () => {
+  setStats((s) => ({
+    ...s,
+    temp:    { ...s.temp,    loading: true, error: false },
+    humi:    { ...s.humi,    loading: true, error: false },
+    pFilter: { ...s.pFilter, loading: true, error: false },
+    pRoom:   { ...s.pRoom,   loading: true, error: false },
+  }));
+  try {
+    // ✅ API giống Right: /api/sensor/ai/live -> { ok, channels:{ ch1..ch4:{value} } }
+    const live = await apiBaseJson("/api/sensor/ai/live");
+    if (!live?.ok) throw new Error("PLC live data not ok");
+    const ch = live.channels || {};
+    const tempVal = Number(ch?.ch1?.value);
+    const humiVal = Number(ch?.ch2?.value);
+    const pfVal   = Number(ch?.ch3?.value);
+    const prVal   = Number(ch?.ch4?.value);
+
+    setStats({
+      temp:    { v: Number.isFinite(tempVal) ? tempVal : null, loading: false, error: !Number.isFinite(tempVal) },
+      humi:    { v: Number.isFinite(humiVal) ? humiVal : null, loading: false, error: !Number.isFinite(humiVal) },
+      pFilter: { v: Number.isFinite(pfVal)   ? pfVal   : null, loading: false, error: !Number.isFinite(pfVal) },
+      pRoom:   { v: Number.isFinite(prVal)   ? prVal   : null, loading: false, error: !Number.isFinite(prVal) },
+      updatedAt: new Date(),
+    });
+  } catch (e) {
+    const msg = e?.message || "loadStats error";
+    dispatch(fetchDataFailure(msg));
     setStats((s) => ({
-      ...s,
-      temp:    { ...s.temp,    loading: true, error: false },
-      humi:    { ...s.humi,    loading: true, error: false },
-      pFilter: { ...s.pFilter, loading: true, error: false },
-      pRoom:   { ...s.pRoom,   loading: true, error: false },
+      temp:    { ...s.temp,    loading: false, error: true },
+      humi:    { ...s.humi,    loading: false, error: true },
+      pFilter: { ...s.pFilter, loading: false, error: true },
+      pRoom:   { ...s.pRoom,   loading: false, error: true },
+      updatedAt: s.updatedAt,
     }));
-    try {
-      const [lastTH, pf, pr] = await Promise.allSettled([
-        apiJson("/api/sensor/last"),                // -> { temp, humidity }
-        apiJson("/api/sensor/pressure/filter"),     // -> number | { value }
-        apiJson("/api/sensor/pressure/room"),       // -> number | { value }
-      ]);
-      const tempVal = lastTH.status === "fulfilled" ? Number(lastTH.value?.temp) : null;
-      const humiVal = lastTH.status === "fulfilled" ? Number(lastTH.value?.humidity) : null;
-      const pfVal   = pf.status    === "fulfilled" ? Number(pf.value?.value ?? pf.value) : null;
-      const prVal   = pr.status    === "fulfilled" ? Number(pr.value?.value ?? pr.value) : null;
+  }
+}, [apiBaseJson, dispatch]);
 
-      setStats({
-        temp:    { v: Number.isFinite(tempVal) ? tempVal : null, loading: false, error: lastTH.status !== "fulfilled" },
-        humi:    { v: Number.isFinite(humiVal) ? humiVal : null, loading: false, error: lastTH.status !== "fulfilled" },
-        pFilter: { v: Number.isFinite(pfVal)   ? pfVal   : null, loading: false, error: pf.status !== "fulfilled" },
-        pRoom:   { v: Number.isFinite(prVal)   ? prVal   : null, loading: false, error: pr.status !== "fulfilled" },
-        updatedAt: new Date(),
-      });
-    } catch {
-      setStats((s) => ({
-        temp:    { ...s.temp,    loading: false, error: true },
-        humi:    { ...s.humi,    loading: false, error: true },
-        pFilter: { ...s.pFilter, loading: false, error: true },
-        pRoom:   { ...s.pRoom,   loading: false, error: true },
-        updatedAt: s.updatedAt,
-      }));
-    }
-  }, [apiJson]);
 
-  const loadHistory = useCallback(async () => {
-    try {
-      const json = await apiJson("/api/sensor/history?metric=all&bucketSec=60");
-      const norm = (arr) => Array.isArray(arr) ? arr.map((d) => ({ t: d.t, v: Number(d.v) })) : [];
-      setHistTemp(norm(json?.temp));
-      setHistHumd(norm(json?.humidity));
-    } catch { /* silent */ }
-  }, [apiJson]);
+const loadHistory = useCallback(async () => {
+  try {
+    // ✅ giống Right: gọi từng metric
+    const [tempJson, humJson] = await Promise.all([
+      apiBaseJson("/api/sensor/history?metric=temp&bucketSec=60"),
+      apiBaseJson("/api/sensor/history?metric=humidity&bucketSec=60"),
+    ]);
+    setHistTemp(normPoints(tempJson));
+    setHistHumd(normPoints(humJson));
+  } catch (e) {
+    const msg = e?.message || "loadHistory error";
+    dispatch(fetchDataFailure(msg));
+  }
+}, [apiBaseJson, dispatch]);
 
-  const loadPressureHistory = useCallback(async () => {
-    try {
-      const [fJson, rJson] = await Promise.all([
-        apiJson("/api/sensor/pressure/history?kind=filter&bucketSec=60"),
-        apiJson("/api/sensor/pressure/history?kind=room&bucketSec=60"),
-      ]);
-      const norm = (arr) => Array.isArray(arr) ? arr.map((d) => ({ t: d.t, v: Number(d.v) })) : [];
-      setHistPFilter(norm(fJson?.points || fJson));
-      setHistPRoom(norm(rJson?.points || rJson));
-    } catch { /* silent */ }
-  }, [apiJson]);
 
-  // Polling giống Right
+const loadPressureHistory = useCallback(async () => {
+  try {
+    // ✅ giống Right
+    const [fJson, rJson] = await Promise.all([
+      apiBaseJson("/api/sensor/pressure/filter/history"),
+      apiBaseJson("/api/sensor/pressure/room/history"),
+    ]);
+    setHistPFilter(normPoints(fJson));
+    setHistPRoom(normPoints(rJson));
+  } catch (e) {
+    const msg = e?.message || "loadPressureHistory error";
+    dispatch(fetchDataFailure(msg));
+  }
+}, [apiBaseJson, dispatch]);
+
+
   useEffect(() => {
-    // lần đầu
-    loadStats();
-    loadHistory();
-    loadPressureHistory();
-
-    // current values: 5s
-    const tick = setInterval(() => {
-      loadStats();
-    }, 5000);
-
-    // histories: 60s
-    const histTick = setInterval(() => {
-      loadHistory();
-      loadPressureHistory();
-    }, 60000);
-
-    return () => {
-      clearInterval(tick);
-      clearInterval(histTick);
-    };
+    loadStats(); loadHistory(); loadPressureHistory();
+    const tick = setInterval(() => { loadStats(); }, 5000);
+    const histTick = setInterval(() => { loadHistory(); loadPressureHistory(); }, 60000);
+    return () => { clearInterval(tick); clearInterval(histTick); };
   }, [loadStats, loadHistory, loadPressureHistory]);
 
   /* Medical gas (compact) */
@@ -401,64 +443,77 @@ export default function TimerTriple() {
   const loadGas = useCallback(async () => {
     try {
       setGasErr("");
-      const res = await apiJson("/api/gas");
+      const res = await apiBaseJson("/api/gas");
       const arr = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
       setGas(shapeGas(arr)); setGasUpdatedAt(new Date());
-    } catch (e) { setGasErr(e?.message || "Failed to load gas"); }
-  }, [apiJson]);
+    } catch (e) {
+      const msg = e?.message || "Failed to load gas";
+      setGasErr(msg);
+      dispatch(fetchDataFailure(msg));
+    }
+  }, [apiBaseJson, dispatch]);
   useEffect(() => {
     loadGas();
     const id = setInterval(loadGas, 10000);
     return () => clearInterval(id);
   }, [loadGas]);
 
-  /* Devices (right column) */
+  /* ========== DEVICES (GIỐNG Control) ========== */
   const DEV_ITEMS = [
-    { id: "in_use",          label: "use" },
-    { id: "operating_lamp",  label: "operating lamp" },
-    { id: "xray",            label: "x-ray" },
-    { id: "uv",              label: "uv" },
-    { id: "heat_lamp",       label: "heating lamp" },
-    { id: "general_light",   label: "Genaral Light" },
+    { id: "in_use",          nameKey: "use" },
+    { id: "operating_lamp",  nameKey: "operating lamp" },
+    { id: "xray",            nameKey: "x-ray" },
+    { id: "uv",              nameKey: "UV Lamp" },
+    { id: "heat_lamp",       nameKey: "heating lamp" },
+    { id: "general_light",   nameKey: "General Light" },
   ];
   const [dev, setDev] = useState(DEV_ITEMS.map(d => ({ ...d, on: false })));
-  const [devLoading, setDevLoading] = useState(false);
   const [devSavingId, setDevSavingId] = useState(null);
   const [devErr, setDevErr] = useState("");
+
   const loadDevices = useCallback(async () => {
     try {
-      setDevLoading(true); setDevErr("");
-      const list = await apiJson("/api/devices"); // [{deviceId,isOn,hwOn,name}]
+      setDevErr("");
+      const resp = await apiBaseJson("/api/devices");
+      const list = normalizeDevices(resp);
       const byId = Object.fromEntries(list.map(d => [d.deviceId, d]));
       setDev(DEV_ITEMS.map(d => {
-        const row = byId[d.id];
-        const on = typeof row?.hwOn === "boolean" ? row.hwOn
-                : typeof row?.isOn === "boolean" ? row.isOn : false;
-        const name = row?.name || d.label;
-        return { ...d, name, on };
+        const row = byId[d.id] || {};
+        const on = (row.isOn ?? row.hwOn ?? row.on ?? false) ? true : false;
+        const name = row.name || d.nameKey;
+        return { ...d, on, customName: name };
       }));
     } catch (e) {
-      setDevErr(e.message || "Load devices failed");
-    } finally {
-      setDevLoading(false);
+      const msg = e?.message || t("Load devices failed");
+      setDevErr(msg);
+      dispatch(fetchDataFailure(msg));
     }
-  }, [apiJson]);
+  }, [apiBaseJson, t, dispatch]);
+
   useEffect(() => { loadDevices(); }, [loadDevices]);
+  useEffect(() => {
+    const id = setInterval(loadDevices, 10000);
+    return () => clearInterval(id);
+  }, [loadDevices]);
+
   const toggleDevice = (id) => async () => {
     const idx = dev.findIndex(d => d.id === id);
     if (idx < 0) return;
     const next = !dev[idx].on;
+
     setDev(arr => arr.map((it, i) => i === idx ? { ...it, on: next } : it));
     setDevSavingId(id);
+    setDevErr("");
     try {
-      await apiJson(`/api/devices/${id}/state`, {
+      await apiBaseJson(`/api/devices/${id}/state`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ on: next }),
       });
     } catch (e) {
-      setDev(arr => arr.map((it, i) => i === idx ? { ...it, on: !next } : it));
-      setDevErr(e.message || "Update device failed");
+      const msg = e?.message || t("Update device failed");
+      setDev(arr => arr.map((it, i) => i === idx ? { ...it, on: !next } : it)); // rollback
+      setDevErr(msg);
+      dispatch(fetchDataFailure(msg));
     } finally {
       setDevSavingId(null);
     }
@@ -511,7 +566,7 @@ export default function TimerTriple() {
         </div>
         <div className="justify-self-center">
           <NavLink to="/lighting">
-            <div className={styles.goBtn}>{("Go to Control").toUpperCase()}</div>
+            <div className={styles.goBtn}>{t("Go to Control").toUpperCase()}</div>
           </NavLink>
         </div>
         <div className="justify-self-end text-sm text-gray-400" />
@@ -523,65 +578,52 @@ export default function TimerTriple() {
         <div className="col-span-12 lg:col-span-2 space-y-5 md:space-y-6">
           <div className="grid grid-cols-1 gap-4">
             <StatTile
-              label="Temperature"
+              t={t}
+              label={t("Temperature")}
               value={Number.isFinite(stats.temp.v) ? stats.temp.v.toFixed(1) : stats.temp.v}
               unit="°C"
               accent="rose"
               loading={stats.temp.loading}
               error={stats.temp.error}
-              footer={
-                <div className="mt-2">
-                  <Spark data={histTemp} ariaLabel="Temperature trend" />
-                </div>
-              }
+              footer={<div className="mt-2"><Spark data={histTemp} ariaLabel={t("Temperature trend")} /></div>}
             />
             <StatTile
-              label="Humidity"
+              t={t}
+              label={t("Humidity")}
               value={Number.isFinite(stats.humi.v) ? stats.humi.v.toFixed(0) : stats.humi.v}
               unit="%"
               accent="blue"
               loading={stats.humi.loading}
               error={stats.humi.error}
-              footer={
-                <div className="mt-2">
-                  <Spark data={histHumd} ariaLabel="Humidity trend" />
-                </div>
-              }
+              footer={<div className="mt-2"><Spark data={histHumd} ariaLabel={t("Humidity trend")} /></div>}
             />
             <StatTile
-              label="Filter Pressure"
+              t={t}
+              label={t("Filter Pressure")}
               value={Number.isFinite(stats.pFilter.v) ? stats.pFilter.v.toFixed(0) : stats.pFilter.v}
-              unit="Pa"
+              unit={t("Pa")}
               accent="amber"
               loading={stats.pFilter.loading}
               error={stats.pFilter.error}
-              footer={
-                <div className="mt-2">
-                  <Spark data={histPFilter} ariaLabel="Filter pressure trend" />
-                </div>
-              }
+              footer={<div className="mt-2"><Spark data={histPFilter} ariaLabel={t("Filter pressure trend")} /></div>}
             />
             <StatTile
-              label="Room Pressure"
+              t={t}
+              label={t("Room Pressure")}
               value={Number.isFinite(stats.pRoom.v) ? stats.pRoom.v.toFixed(0) : stats.pRoom.v}
-              unit="Pa"
+              unit={t("Pa")}
               accent="emerald"
               loading={stats.pRoom.loading}
               error={stats.pRoom.error}
-              footer={
-                <div className="mt-2">
-                  <Spark data={histPRoom} ariaLabel="Room pressure trend" />
-                </div>
-              }
+              footer={<div className="mt-2"><Spark data={histPRoom} ariaLabel={t("Room pressure trend")} /></div>}
             />
           </div>
 
           <div className="text-right">
-            <button onClick={() => { loadStats(); loadHistory(); loadPressureHistory(); }} className="border border-gray-300 rounded-full px-4 py-2 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-2" title="Refresh">
-              <FontAwesomeIcon icon={faRotateRight} /> Refresh ENV
-            </button>
             {stats.updatedAt && (
-              <span className="ml-3 text-sm text-gray-400">Updated: {stats.updatedAt.toLocaleTimeString()}</span>
+              <span className="ml-3 text-sm text-gray-400">
+                {t("Updated")}: {stats.updatedAt.toLocaleTimeString()}
+              </span>
             )}
           </div>
         </div>
@@ -598,17 +640,17 @@ export default function TimerTriple() {
                 <span className="ml-3 text-[clamp(16px,2vw,22px)] text-gray-600">{suffix}</span>
               )}
             </div>
-            <div className={styles.caption}>Current Time</div>
+            <div className={styles.caption}>{t("Current Time")}</div>
           </Card>
 
           {/* Control Both */}
           <Card className="text-center">
             <div className="flex flex-wrap items-center justify-center gap-3">
               <div className="px-5 py-3 rounded-xl border border-gray-200 bg-white/60 flex items-center gap-3">
-                <span className="text-gray-700 text-sm md:text-base">Control Both</span>
-                <button onClick={playBoth}  className={styles.btn} title="Play both"><FontAwesomeIcon icon={faPlay} /></button>
-                <button onClick={pauseBoth} className={styles.btn} title="Pause both"><FontAwesomeIcon icon={faPause} /></button>
-                <button onClick={resetBoth} className={styles.btn} title="Reset both"><FontAwesomeIcon icon={faXmark} /></button>
+                <span className="text-gray-700 text-sm md:text-base">{t("Control Both")}</span>
+                <button onClick={playBoth}  className={styles.btn} title={t("Play both")}><FontAwesomeIcon icon={faPlay} /></button>
+                <button onClick={pauseBoth} className={styles.btn} title={t("Pause both")}><FontAwesomeIcon icon={faPause} /></button>
+                <button onClick={resetBoth} className={styles.btn} title={t("Reset both")}><FontAwesomeIcon icon={faXmark} /></button>
               </div>
             </div>
           </Card>
@@ -624,11 +666,11 @@ export default function TimerTriple() {
                 <span className={styles.colon}>:</span>
                 <span className={`${styles.cardBig} ${styles.red}`}>{pad2(sH.s)}</span>
               </div>
-              <div className={styles.caption}>Surgery Time</div>
+              <div className={styles.caption}>{t("Surgery Time")}</div>
               <div className="mt-1 flex items-center justify-center gap-2">
-                <button onClick={surgPlay}  className={styles.btn} title="Play"><FontAwesomeIcon icon={faPlay} /></button>
-                <button onClick={surgPause} className={styles.btn} title="Pause"><FontAwesomeIcon icon={faPause} /></button>
-                <button onClick={surgReset} className={styles.btn} title="Reset"><FontAwesomeIcon icon={faXmark} /></button>
+                <button onClick={surgPlay}  className={styles.btn} title={t("Play")}><FontAwesomeIcon icon={faPlay} /></button>
+                <button onClick={surgPause} className={styles.btn} title={t("Pause")}><FontAwesomeIcon icon={faPause} /></button>
+                <button onClick={surgReset} className={styles.btn} title={t("Reset")}><FontAwesomeIcon icon={faXmark} /></button>
               </div>
             </Card>
 
@@ -641,26 +683,33 @@ export default function TimerTriple() {
                 <span className={styles.colon}>:</span>
                 <span className={`${styles.cardBig} ${styles.blue}`}>{pad2(aH.s)}</span>
               </div>
-              <div className={styles.caption}>Anesthesia Countdown</div>
+              <div className={styles.caption}>{t("Anesthesia Countdown")}</div>
               <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                 <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-2 py-1">
                   <input
-                    type="number" min="1" step="1"
+                    type="text"
+                    inputMode="none"
+                    readOnly
                     value={anesMinsInput}
-                    onChange={(e) => setAnesMinsInput(e.target.value)}
+                    onClick={() => setKpOpen(true)}
                     className={styles.input}
+                    aria-label={t("Minutes")}
+                    title={t("Tap to enter")}
                   />
-                  <span className="text-gray-500 text-[clamp(12px,1.6vw,14px)]">minutes</span>
-                  <button onClick={applyAnesMinutes} className={styles.tinyBtn} title="Apply">
+                  <span className="text-gray-500 text-[clamp(12px,1.6vw,14px)]">{t("minutes")}</span>
+                  <button onClick={() => setKpOpen(true)} className={styles.tinyBtn} title={t("Open keypad")} aria-label={t("Open keypad")}>
+                    <FontAwesomeIcon icon={faKeyboard} />
+                  </button>
+                  <button onClick={applyAnesMinutes} className={styles.tinyBtn} title={t("Apply")}>
                     <FontAwesomeIcon icon={faCheck} />
                   </button>
                 </div>
-                <button onClick={anesPlay}  className={styles.btn} title="Play"><FontAwesomeIcon icon={faPlay} /></button>
-                <button onClick={anesPause} className={styles.btn} title="Pause"><FontAwesomeIcon icon={faPause} /></button>
-                <button onClick={anesReset} className={styles.btn} title="Reset"><FontAwesomeIcon icon={faXmark} /></button>
+                <button onClick={anesPlay}  className={styles.btn} title={t("Play")}><FontAwesomeIcon icon={faPlay} /></button>
+                <button onClick={anesPause} className={styles.btn} title={t("Pause")}><FontAwesomeIcon icon={faPause} /></button>
+                <button onClick={anesReset} className={styles.btn} title={t("Reset")}><FontAwesomeIcon icon={faXmark} /></button>
               </div>
               {!anesRun && anesLeft === anesStart && (
-                <div className={styles.hint}>Set minutes, then press Play.</div>
+                <div className={styles.hint}>{t("Set minutes, then press Play.")}</div>
               )}
             </Card>
           </div>
@@ -671,54 +720,64 @@ export default function TimerTriple() {
           {/* Devices grid */}
           <Card>
             <div className="flex items-center justify-between mb-3">
-              <div className="text-[clamp(14px,1.8vw,18px)] font-semibold text-slate-700">Devices</div>
-              <div className="flex items-center gap-3">
-                {devErr && <span className="text-sm text-rose-600">{devErr}</span>}
-                <button
-                  onClick={loadDevices}
-                  className="border border-gray-300 rounded-full px-3 py-1.5 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-2"
-                  title="Reload"
-                >
-                  <FontAwesomeIcon icon={faRotateRight} /> Reload
-                </button>
-                {devLoading && <span className="text-xs text-gray-400">Loading…</span>}
-              </div>
+              <div className="text-[clamp(14px,1.8vw,18px)] font-semibold text-slate-700">{t("Devices")}</div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {dev.map(d => (
-                <TapCard
-                  key={d.id}
-                  title={d.name || d.label}
-                  sub={d.on ? "Tap to turn OFF" : "Tap to turn ON"}
+              {dev.map(d => {
+                const title = t(`device.${d.id}`, {
+                  defaultValue: t(d.nameKey, {
+                    defaultValue: t(d.customName || "", {
+                      defaultValue: d.customName || d.nameKey || d.id,
+                    }),
+                  }),
+                });
+                return (
+                  <TapCard
+                    key={d.id}
+                    title={title}
+                  sub={d.on ? t("Tap to turn OFF") : t("Tap to turn ON")}
                   pressed={d.on}
                   disabled={devSavingId === d.id}
                   loading={devSavingId === d.id}
+                  loadingImg={LOADING_IMG}
+                  t={t}
                   onClick={toggleDevice(d.id)}
-                />
-              ))}
+                  />
+                );
+              })}
             </div>
+            {!!devErr && <div className="mt-2 text-sm text-rose-700">{devErr}</div>}
           </Card>
 
           {/* MEDICAL GAS — COMPACT */}
           <Card>
             <div className="flex items-center justify-between gap-3 mb-2">
-              <div className="text-[clamp(14px,1.8vw,18px)] font-semibold text-slate-700">Medical Gas</div>
+              <div className="text-[clamp(14px,1.8vw,18px)] font-semibold text-slate-700">{t("Medical Gas")}</div>
               <div className="flex items-center gap-3">
                 {gasErr && <span className="text-sm text-rose-600">{gasErr}</span>}
-                <button onClick={loadGas} className="border border-gray-300 rounded-full px-3 py-1.5 text-gray-700 hover:bg-gray-50 flex items-center gap-2" title="Refresh">
-                  <FontAwesomeIcon icon={faRotateRight} /> Refresh
+                <button onClick={loadGas} className="border border-gray-300 rounded-full px-3 py-1.5 text-gray-700 hover:bg-gray-50 flex items-center gap-2" title={t("Refresh")}>
+                  <FontAwesomeIcon icon={faRotateRight} /> {t("Refresh")}
                 </button>
                 {gasUpdatedAt && (
-                  <span className="text-xs text-gray-400">Updated: {gasUpdatedAt.toLocaleTimeString()}</span>
+                  <span className="text-xs text-gray-400">{t("Updated")}: {gasUpdatedAt.toLocaleTimeString()}</span>
                 )}
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {gas.map((g) => (<GasBadge key={g.code} code={g.code} status={g.status} />))}
+              {gas.map((g) => (<GasBadge key={g.code} code={g.code} status={g.status} t={t} />))}
             </div>
           </Card>
         </div>
       </div>
+
+      {/* Numeric Keypad Modal */}
+      <NumericKeypad  
+        open={kpOpen}
+        initial={anesMinsInput}
+        onClose={() => setKpOpen(false)}
+        onApply={applyKeypadMinutes}
+        t={t}
+      />
     </div>
   );
 }

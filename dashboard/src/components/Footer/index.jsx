@@ -1,11 +1,10 @@
 // src/layout/Footer/index.jsx
-import React, { useEffect, useState, useCallback } from "react";
+import React from "react";
 import { NavLink } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { useTranslation } from "react-i18next";
 import { setActive } from "../../store/activeSlice";
-import { fetchDataFailure } from "../../features/api/apiSlice";
-import { getAllGas, getAllPower } from "../../features/api/apiClient";
+import { selectGas, selectPower } from "../../features/status/statusSlice";
 
 /* ===== blink CSS khi Fault ===== */
 const AlarmCSS = () => (
@@ -18,40 +17,8 @@ const AlarmCSS = () => (
   `}</style>
 );
 
-/* ===== Medical Gas (0=Normal, 1=Fault) ===== */
-const GAS_ORDER = ["O2", "N2O", "MA4", "MA7", "VA", "CO2"];
-const GAS_SAMPLE = GAS_ORDER.map((c) => ({ code: c, status: 0 }));
-const toGasCode = (it) => String(it?.code ?? it?.keyword ?? "").toUpperCase();
-const toStatus01 = (it) => (Number(it?.status) === 1 ? 1 : 0);
-const shapeGas = (raw) => {
-  const by = {};
-  (raw || []).forEach((it) => {
-    const code = toGasCode(it);
-    if (GAS_ORDER.includes(code)) by[code] = { code, status: toStatus01(it) };
-  });
-  return GAS_ORDER.map((c) => by[c] ?? { code: c, status: 0 });
-};
-
-/* ===== Power (true=Fault, false=Normal) ===== */
-const POWER_TILES = [
-  { key: "ups",  title: "UPS"  },
-  { key: "ips",  title: "IPS"  },
-  { key: "main", title: "MAIN" },
-];
-const shapePower = (raw) => {
-  const arr = Array.isArray(raw) ? raw : [];
-  const byKey = Object.fromEntries(
-    arr.map((it) => [String(it?.key || "").toLowerCase(), Boolean(it?.status)])
-  );
-  return POWER_TILES.map((t) => ({
-    ...t,
-    status: !!byKey[t.key], // true = Fault, false = Normal
-  }));
-};
-
-/* ====== Chips chuyển trang trực tiếp ====== */
-const GasChip = ({ code, status, onActivate }) => {
-  const alarm = status === 1;
+const GasChip = ({ code, fault, onActivate }) => {
+  const alarm = !!fault;
   return (
     <NavLink
       to="/medical-gas"
@@ -93,41 +60,9 @@ const PowerChip = ({ label, fault, onActivate }) => {
 export default function Footer() {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const pollIntervalSec = useSelector((s) => s?.settings?.pollIntervalSec ?? 10);
 
-  /* ===== GAS state ===== */
-  const [gas, setGas] = useState(GAS_SAMPLE);
-  const loadGas = useCallback(async () => {
-    try {
-      const res = await getAllGas(); // GET /api/gas -> [{ code, status(0|1) }]
-      const arr = Array.isArray(res?.data) ? res.data : [];
-      setGas(shapeGas(arr));
-    } catch (e) {
-      dispatch(fetchDataFailure(e?.message ?? "getAllGas error"));
-      setGas(GAS_SAMPLE);
-    }
-  }, [dispatch]);
-
-  /* ===== POWER state ===== */
-  const [power, setPower] = useState(shapePower([]));
-  const loadPower = useCallback(async () => {
-    try {
-      const res = await getAllPower(); // GET /api/power -> [{ key, title, status:boolean }]
-      setPower(shapePower(res?.data));
-    } catch (e) {
-      dispatch(fetchDataFailure(e?.message ?? "getAllPower error"));
-      setPower(shapePower([]));
-    }
-  }, [dispatch]);
-
-  /* ===== polling ===== */
-  useEffect(() => {
-    const runAll = () => { loadGas(); loadPower(); };
-    runAll();
-    const ms = Math.max(1, Number(pollIntervalSec || 10)) * 1000;
-    const id = setInterval(runAll, ms);
-    return () => clearInterval(id);
-  }, [loadGas, loadPower, pollIntervalSec]);
+  const gas = useSelector(selectGas);       // [{code,status,fault}]
+  const power = useSelector(selectPower);   // [{key,fault}]
 
   return (
     <footer className="fixed bottom-0 left-0 right-0 bg-transparent backdrop-blur">
@@ -138,7 +73,7 @@ export default function Footer() {
           <div className="hidden md:block shrink-0" style={{ width: "var(--nav-w, 11rem)" }} />
 
           {/* MEDICAL GAS */}
-          <div className="flex items-center gap-3 min-w-[260px]">
+          <div className="flex items-center gap-3 min-w=[260px]">
             <div className="text-lg md:text-2xl font-semibold text-slate-800 whitespace-nowrap">
               {t("Medical Gas")}
             </div>
@@ -147,7 +82,7 @@ export default function Footer() {
                 <GasChip
                   key={g.code}
                   code={g.code}
-                  status={g.status}
+                  fault={g.fault}
                   onActivate={() => dispatch(setActive("medical-gas"))}
                 />
               ))}
@@ -166,8 +101,8 @@ export default function Footer() {
               {power.map((p) => (
                 <PowerChip
                   key={p.key}
-                  label={p.title.toUpperCase()}
-                  fault={p.status}
+                  label={(p.key || "").toUpperCase()}
+                  fault={p.fault}
                   onActivate={() => dispatch(setActive("power"))}
                 />
               ))}

@@ -11,16 +11,25 @@
     "dev": "nodemon src/server.js",
     "seed:devices": "node src/seed/seedDevices.js",
     "seed:gas": "node src/seed/seed.gas.js",
-    "seed:power": "node src/seed/seedPower.js"
+    "seed:power": "node src/seed/seedPower.js",
+    "seed:license": "node src/seed/seed.license.js",
+    "seed:license:show": "node src/seed/seed.license.js --show"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "connect-timeout": "^1.9.1",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "modbus-serial": "^8.0.21-no-serial-port",
     "mongodb": "^6.16.0",
     "mongoose": "^8.15.1",
     "mqtt": "^5.14.0",
+    "node-machine-id": "^1.1.12",
+    "nodes7": "^0.3.18",
+    "socket.io": "^4.8.1",
     "ws": "^8.18.2"
   },
   "devDependencies": {
